@@ -1560,6 +1560,7 @@ function fmtCleanDate(d){ if(!d)return "No date"; return new Date(d+"T00:00:00")
 function midSetView(v){ midState.view=v; renderPage("midstay"); }
 function midCalNav(d){ midState.calMonth=ymAdd(midState.calMonth||"2026-09",d); renderPage("midstay"); }
 function midToggle(id){ midState.open=midState.open||{}; midState.open[id]=!midState.open[id]; renderPage("midstay"); }
+function midToggleDone(){ midState.showDone=!midState.showDone; renderPage("midstay"); }
 function midToggleSop(id,sk){ if(!requireEdit("midstay"))return; const list=midList(); const r=list.find(x=>x.id===id); if(!r)return; r.sop=r.sop||{}; r.sop[sk]=!r.sop[sk]; r.updated=nowISO(); save("midstay",list); renderPage("midstay"); }
 
 let midCtx={resId:null,cleanId:null};
@@ -1635,38 +1636,64 @@ function cleanCard(resId,c){
       +'<button class="btn ghost sm" onclick="midOpenClean(\''+resId+'\',\''+c.id+'\')">Edit</button>'
     +'</div></div>';
 }
+/* A reservation is "completed" once the guest has checked out AND every one of its
+   cleans is Done or Paid. Anything still in house, arriving, or with an outstanding
+   or unscheduled clean stays in the active list (so long stays with future cleans
+   don't disappear). */
+function midResDone(r){
+  const cleans=r.cleans||[];
+  const checkedOut = r.out && r.out < todayAU();
+  const allResolved = cleans.length>0 && cleans.every(c=>c.status==="Paid"||c.status==="Done");
+  return checkedOut && allResolved;
+}
+function midResCard(r){
+  const cleans=r.cleans||[]; const paid=cleans.filter(c=>c.status==="Paid"||c.status==="Done").length;
+  const sop=r.sop||{}; const sopDone=MID_SOP_STEPS.filter(s=>sop[s[0]]).length;
+  const open=!!midState.open[r.id];
+  const done=midResDone(r);
+  const propTitle=r.listingId?propName(r.listingId):(r.listing||"").split(" / ")[0];
+  const header='<div class="resh" onclick="midToggle(\''+r.id+'\')">'
+    +'<span class="caret'+(open?" open":"")+'">&#9656;</span>'
+    +'<div style="min-width:170px"><span class="mono" style="font-size:10px">'+esc(r.code||"")+'</span> <span class="pill mut">'+esc(r.platform||"Manual")+'</span>'
+      +'<div style="font-weight:600;margin-top:3px">'+esc(r.guest||"")+'</div><div class="muted" style="font-size:11px">'+esc(propTitle)+'</div></div>'
+    +'<div class="muted" style="font-size:11px;min-width:140px">In '+esc(r.in||"-")+'<br>Out '+esc(r.out||"-")+' &middot; '+esc(String(r.nights||"-"))+'n</div>'
+    +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-left:auto">'
+      +(done?'<span class="pill ok">Completed</span>':"")
+      +'<span class="pill '+(cleans.length&&paid===cleans.length?"ok":"warn")+'">'+paid+' / '+cleans.length+' cleans paid</span>'
+      +'<span class="pill '+(sopDone===5?"ok":"info")+'">SOP '+sopDone+' / 5</span>'
+    +'</div></div>';
+  let body="";
+  if(open){
+    const sopHTML='<div class="mono" style="font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:12px 0 2px">Mid-stay clean SOP workflow ('+esc(String(r.nights||"-"))+' nights)</div>'
+      +'<div class="chkrow">'+MID_SOP_STEPS.map(s=>'<span class="chkpill'+(sop[s[0]]?" on":"")+'" onclick="midToggleSop(\''+r.id+'\',\''+s[0]+'\')"><input type="checkbox" '+(sop[s[0]]?"checked":"")+' style="pointer-events:none">'+esc(s[1])+'</span>').join("")+'</div>';
+    const cleanHTML=cleans.length?cleans.map(c=>cleanCard(r.id,c)).join(""):'<div class="muted" style="font-size:12px;padding:6px 0 10px">No cleans scheduled yet. Use Add clean.</div>';
+    body='<div class="resb">'+sopHTML
+      +'<div class="sechd" style="margin-top:14px"><h3 style="font-size:13px">Scheduled mid-stay cleans</h3><span class="ct">'+cleans.length+'</span><div class="sp"><button class="btn ghost sm" onclick="midOpenStay(\''+r.id+'\')">Edit stay</button> <button class="btn sm" onclick="midOpenClean(\''+r.id+'\')">Add clean</button></div></div>'
+      +cleanHTML+'</div>';
+  }
+  return '<div class="rescard">'+header+body+'</div>';
+}
 function midStays(list){
   midState.open=midState.open||{};
-  const cards=list.slice().sort((a,b)=>(a.in||"").localeCompare(b.in||"")).map(r=>{
-    const cleans=r.cleans||[]; const paid=cleans.filter(c=>c.status==="Paid"||c.status==="Done").length;
-    const sop=r.sop||{}; const sopDone=MID_SOP_STEPS.filter(s=>sop[s[0]]).length;
-    const open=!!midState.open[r.id];
-    const propTitle=r.listingId?propName(r.listingId):(r.listing||"").split(" / ")[0];
-    const header='<div class="resh" onclick="midToggle(\''+r.id+'\')">'
-      +'<span class="caret'+(open?" open":"")+'">&#9656;</span>'
-      +'<div style="min-width:170px"><span class="mono" style="font-size:10px">'+esc(r.code||"")+'</span> <span class="pill mut">'+esc(r.platform||"Manual")+'</span>'
-        +'<div style="font-weight:600;margin-top:3px">'+esc(r.guest||"")+'</div><div class="muted" style="font-size:11px">'+esc(propTitle)+'</div></div>'
-      +'<div class="muted" style="font-size:11px;min-width:140px">In '+esc(r.in||"-")+'<br>Out '+esc(r.out||"-")+' &middot; '+esc(String(r.nights||"-"))+'n</div>'
-      +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-left:auto">'
-        +'<span class="pill '+(cleans.length&&paid===cleans.length?"ok":"warn")+'">'+paid+' / '+cleans.length+' cleans paid</span>'
-        +'<span class="pill '+(sopDone===5?"ok":"info")+'">SOP '+sopDone+' / 5</span>'
-      +'</div></div>';
-    let body="";
-    if(open){
-      const sopHTML='<div class="mono" style="font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:12px 0 2px">Mid-stay clean SOP workflow ('+esc(String(r.nights||"-"))+' nights)</div>'
-        +'<div class="chkrow">'+MID_SOP_STEPS.map(s=>'<span class="chkpill'+(sop[s[0]]?" on":"")+'" onclick="midToggleSop(\''+r.id+'\',\''+s[0]+'\')"><input type="checkbox" '+(sop[s[0]]?"checked":"")+' style="pointer-events:none">'+esc(s[1])+'</span>').join("")+'</div>';
-      const cleanHTML=cleans.length?cleans.map(c=>cleanCard(r.id,c)).join(""):'<div class="muted" style="font-size:12px;padding:6px 0 10px">No cleans scheduled yet. Use Add clean.</div>';
-      body='<div class="resb">'+sopHTML
-        +'<div class="sechd" style="margin-top:14px"><h3 style="font-size:13px">Scheduled mid-stay cleans</h3><span class="ct">'+cleans.length+'</span><div class="sp"><button class="btn ghost sm" onclick="midOpenStay(\''+r.id+'\')">Edit stay</button> <button class="btn sm" onclick="midOpenClean(\''+r.id+'\')">Add clean</button></div></div>'
-        +cleanHTML+'</div>';
-    }
-    return '<div class="rescard">'+header+body+'</div>';
-  }).join("");
-  return cards||'<div class="card"><div class="empty"><h4>No stays yet</h4><p>Use Add stay / reservation above to create one, then open it to add cleans.</p></div></div>';
+  const sorted=list.slice().sort((a,b)=>(a.in||"").localeCompare(b.in||""));
+  const active=sorted.filter(r=>!midResDone(r));
+  const done=sorted.filter(r=>midResDone(r)).reverse(); // most recent checkout first
+  const activeHTML=active.length?active.map(midResCard).join("")
+    :'<div class="card"><div class="empty"><h4>Nothing outstanding</h4><p>Every current stay is either wrapped up below or has no cleans left to action.</p></div></div>';
+  let out=activeHTML;
+  if(done.length){
+    const openG=!!midState.showDone;
+    out+='<div class="sechd" style="margin-top:18px;cursor:pointer" onclick="midToggleDone()">'
+      +'<span class="caret'+(openG?" open":"")+'">&#9656;</span>'
+      +'<h3 style="font-size:13px">Completed</h3><span class="ct">'+done.length+'</span>'
+      +'<span class="muted" style="font-size:11px;margin-left:8px">checked out, all cleans done</span></div>';
+    if(openG) out+='<div style="opacity:.9">'+done.map(midResCard).join("")+'</div>';
+  }
+  return sorted.length?out:'<div class="card"><div class="empty"><h4>No stays yet</h4><p>Use Add stay / reservation above to create one, then open it to add cleans.</p></div></div>';
 }
 function midLog(list){
-  const flat=[]; list.forEach(r=>(r.cleans||[]).forEach(c=>flat.push({r:r,c:c})));
-  if(!flat.length) return '<div class="card"><div class="empty"><h4>No cleans logged</h4><p>Open a stay under Stays and cleans and add its mid-stay cleans.</p></div></div>';
+  const flat=[]; list.forEach(r=>(r.cleans||[]).forEach(c=>{ if(c.status==="Paid"||c.status==="Done") flat.push({r:r,c:c}); }));
+  if(!flat.length) return '<div class="note" style="margin-bottom:12px">This log holds completed cleans only (Paid or Done). Cleans still to be scheduled or paid live under Stays and cleans.</div><div class="card"><div class="empty"><h4>No completed cleans yet</h4><p>Once a clean is marked Paid or Done under Stays and cleans, it lands here as a permanent record.</p></div></div>';
   flat.sort((a,b)=>(a.c.date||"").localeCompare(b.c.date||""));
   const rows=flat.map(x=>{ const r=x.r,c=x.c;
     const propTitle=r.listingId?propName(r.listingId):(r.listing||"").split(" / ")[0];
@@ -1679,16 +1706,17 @@ function midLog(list){
       +'<td><span class="pill '+cleanTone(c.status)+'">'+esc(c.status)+' &middot; '+money(c.fee||99)+'</span></td>'
       +'<td style="white-space:nowrap"><select class="inp" style="padding:4px 6px;font-size:11px" onchange="midSetCleanStatus(\''+r.id+'\',\''+c.id+'\',this.value)">'+sel+'</select> <button class="btn ghost sm" onclick="midOpenClean(\''+r.id+'\',\''+c.id+'\')">Edit</button></td></tr>';
   }).join("");
-  return '<div class="card tight"><div class="wrap"><table class="tbl"><thead><tr><th>Date and time</th><th>Guest and code</th><th>Property / window</th><th>Service and access</th><th>Payment</th><th>Actions</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
+  return '<div class="note" style="margin-bottom:12px">Completed cleans only (Paid or Done). Cleans still to schedule or chase for payment live under Stays and cleans. Use Edit on any row to fix a record.</div>'
+    +'<div class="card tight"><div class="wrap"><table class="tbl"><thead><tr><th>Date and time</th><th>Guest and code</th><th>Property / window</th><th>Service and access</th><th>Payment</th><th>Actions</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
 }
 function midCalendar(list){
   if(!midState.calMonth) midState.calMonth="2026-09";
   const ym=midState.calMonth; const p=ym.split("-").map(Number); const days=new Date(p[0],p[1],0).getDate();
   const inHouse={}; list.forEach(r=>{ if(!r.in||!r.out)return; for(let d=1;d<=days;d++){ const ds=ym+"-"+String(d).padStart(2,"0"); if(r.in<=ds&&ds<=r.out) inHouse[ds]=(inHouse[ds]||0)+1; } });
   const ev=[]; Object.keys(inHouse).forEach(ds=>ev.push({date:ds,label:inHouse[ds]+" in house",tone:"muted"}));
-  list.forEach(r=>(r.cleans||[]).forEach(c=>{ if(c.date&&String(c.date).slice(0,7)===ym) ev.push({date:c.date,label:"Clean "+(r.code||""),tone:cleanTone(c.status)}); }));
+  list.forEach(r=>(r.cleans||[]).forEach(c=>{ if(c.date&&String(c.date).slice(0,7)===ym) ev.push({date:c.date,label:"Clean "+(r.code||r.guest||""),title:(r.guest||"")+" \u00b7 "+(c.service||"Mid-Stay Clean")+" \u00b7 "+c.status+" (click to open)",tone:cleanTone(c.status),click:"midOpenClean('"+r.id+"','"+c.id+"')"}); }));
   return calStyle()+calNav(ym,"midCalNav")+monthGrid(ym,ev)
-    +'<div class="note" style="margin-top:12px">Green paid or done, amber outstanding, blue pending. Grey shows how many stays are in house that day.</div>';
+    +'<div class="note" style="margin-top:12px">Click a clean to open and edit it. Green paid or done, amber outstanding, blue pending. Grey shows how many stays are in house that day.</div>';
 }
 function viewMidstay(){
   const list=midNormalize();
@@ -3815,6 +3843,8 @@ function calStyle(){ return '<style>'
   +'.cg-ev.alert{background:var(--alert-l);border-color:var(--alert-b);color:var(--alert)}'
   +'.cg-ev.info{background:var(--info-l);border-color:var(--info-b);color:var(--info)}'
   +'.cg-ev.muted{color:var(--muted)}'
+  +'.cg-ev.clk{cursor:pointer}'
+  +'.cg-ev.clk:hover{filter:brightness(.97);box-shadow:0 0 0 1px var(--line2)}'
   +'@media(max-width:760px){.cg-c{min-height:56px}.cg-ev{font-size:8px}}'
   +'</style>'; }
 function calNav(ym,fn){ return '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px"><button class="btn ghost sm" onclick="'+fn+'(-1)">Prev</button><div style="font-family:var(--disp);font-size:15px;min-width:160px;text-align:center">'+esc(ymLabel(ym))+'</div><button class="btn ghost sm" onclick="'+fn+'(1)">Next</button></div>'; }
@@ -3827,7 +3857,7 @@ function monthGrid(ym,events){
   let cells=["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map(d=>'<div class="cg-h">'+d+'</div>').join("");
   for(let i=0;i<start;i++) cells+='<div class="cg-c cg-out"></div>';
   for(let d=1;d<=days;d++){ const ds=ym+"-"+String(d).padStart(2,"0");
-    const evs=(byDate[ds]||[]).map(e=>'<div class="cg-ev '+(e.tone||"")+'" title="'+esc(e.label)+'">'+esc(e.label)+'</div>').join("");
+    const evs=(byDate[ds]||[]).map(e=>'<div class="cg-ev '+(e.tone||"")+(e.click?" clk":"")+'" title="'+esc(e.title||e.label)+'"'+(e.click?' onclick="'+e.click+'"':"")+'>'+esc(e.label)+'</div>').join("");
     cells+='<div class="cg-c'+(ds===today?' cg-today':'')+'"><div class="cg-d">'+d+'</div>'+evs+'</div>'; }
   return '<div class="cgrid">'+cells+'</div>';
 }
