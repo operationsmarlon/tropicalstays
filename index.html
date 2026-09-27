@@ -2184,6 +2184,8 @@ function maintBucket(s){ if(s==="Done")return "done"; if(s==="Scheduled"||s==="I
 function maintList(){ return db("maintenance",[]); }
 function maintJob(id){ return maintList().find(x=>x.id===id); }
 function maintCostNum(m){ return parseFloat(String(m.cost==null?"":m.cost).replace(/[^0-9.]/g,""))||0; }
+function fmtTime12(hhmm){ if(!hhmm||!/^\d{2}:\d{2}$/.test(hhmm))return ""; let [h,mn]=hhmm.split(":").map(Number); const ap=h<12?"AM":"PM"; h=h%12; if(h===0)h=12; return h+":"+String(mn).padStart(2,"0")+" "+ap; }
+function maintDueLabel(m){ if(!m||!m.due)return "-"; const t=fmtTime12(m.dueTime); return m.due+(t?" "+t:""); }
 function maintContact(m){ if(m&&m.contactId){ const c=db("contacts",[]).find(x=>x.id===m.contactId); if(c) return c; } return m&&m.contractor?{name:m.contractor}:null; }
 
 function maintStyle(){ return '<style>'
@@ -2249,7 +2251,8 @@ function maintOpen(id){
     +'<div class="row2"><div class="field"><label>Status</label><select class="inp" id="mj_status">'+opt(MAINT_STATUS,m.status||"To do")+'</select></div>'
     +'<div class="field"><label>Priority</label><select class="inp" id="mj_prio">'+opt(MAINT_PRIO,m.priority||"P3")+'</select></div></div>'
     +'<div class="row2"><div class="field"><label>Scheduled / target date</label><input class="inp" type="date" id="mj_due" value="'+esc(m.due||"")+'"></div>'
-    +'<div class="field"><label>Cost (AUD)</label><input class="inp" id="mj_cost" placeholder="e.g. 180" value="'+esc(m.cost||"")+'"></div></div>'
+    +'<div class="field"><label>Time (optional)</label><input class="inp" type="time" id="mj_time" value="'+esc(m.dueTime||"")+'"></div></div>'
+    +'<div class="field"><label>Cost (AUD)</label><input class="inp" id="mj_cost" placeholder="e.g. 180" value="'+esc(m.cost||"")+'"></div>'
     +'<div class="field"><label>Contact</label><select class="inp" id="mj_contact" onchange="maintContactPick(this)">'+maintContactOptions(m.contactId||"")+'</select></div>'
     +'<div class="mnc" id="mj_newc" style="display:none"><div class="row2"><div class="field"><label>New contact name</label><input class="inp" id="mj_nc_name" placeholder="e.g. Dave the sparky"></div>'
       +'<div class="field"><label>Role</label><select class="inp" id="mj_nc_role">'+roleOpts+'</select></div></div>'
@@ -2274,7 +2277,7 @@ function maintSave(){
   } else if(contactId){ const c=db("contacts",[]).find(x=>x.id===contactId); contractor=c?c.name:""; }
   const list=maintList();
   const data={issue:issue,property:val("mj_prop"),trade:val("mj_cat"),priority:val("mj_prio"),status:val("mj_status")||"To do",
-    due:val("mj_due"),cost:(val("mj_cost")||"").trim(),contactId:contactId||"",contractor:contractor,
+    due:val("mj_due"),dueTime:(val("mj_time")||""),cost:(val("mj_cost")||"").trim(),contactId:contactId||"",contractor:contractor,
     needsApproval:!!document.getElementById("mj_appr").checked,notes:(val("mj_notes")||"").trim(),updated:nowISO()};
   if(maintUI.editId){ const m=list.find(x=>x.id===maintUI.editId); if(m) Object.assign(m,data); }
   else{ const m=Object.assign({id:uid("mnt"),updates:[],photos:[],created:nowISO()},data); list.push(m); maintUI.open[m.id]=false; }
@@ -2306,7 +2309,7 @@ function maintDetail(m){
   const facts='<div class="mfacts">'
     +'<span><b>Category</b> '+esc(m.trade||"General")+'</span>'
     +'<span><b>Priority</b> '+esc(m.priority||"P3")+'</span>'
-    +'<span><b>Due</b> '+esc(m.due||"-")+(m.due?' '+calBtns("maint",m.id):"")+'</span>'
+    +'<span><b>Due</b> '+esc(maintDueLabel(m))+(m.due?' '+calBtns("maint",m.id):"")+'</span>'
     +'<span><b>Cost</b> '+(m.cost?esc(String(m.cost)):"-")+'</span>'
     +(m.needsApproval&&m.status!=="Done"?'<span class="chip warn">Isabell approval</span>':"")
     +'</div>';
@@ -2350,7 +2353,7 @@ function maintRows(jobs){
       +'<td onclick="event.stopPropagation()"><select class="mstatsel '+maintTone(m.status)+'" onchange="maintSetStatus(\''+m.id+'\',this.value)">'+MAINT_STATUS.map(o=>'<option'+(o===(m.status||"To do")?" selected":"")+'>'+esc(o)+'</option>').join("")+'</select></td>'
       +'<td>'+(c?esc(c.name):"-")+(c&&c.phone?'<div class="muted mono" style="font-size:10px">'+esc(c.phone)+'</div>':"")+'</td>'
       +'<td class="mono">'+(m.cost?esc(String(m.cost)):"-")+'</td>'
-      +'<td class="mono" style="white-space:nowrap;color:'+(od?"var(--alert)":dt?"var(--warn)":"var(--ink2)")+'" onclick="event.stopPropagation()">'+esc(m.due||"-")+(od?" overdue":dt?" today":"")+(m.due?" "+calBtns("maint",m.id):"")+'</td>'
+      +'<td class="mono" style="white-space:nowrap;color:'+(od?"var(--alert)":dt?"var(--warn)":"var(--ink2)")+'" onclick="event.stopPropagation()">'+esc(maintDueLabel(m))+(od?" overdue":dt?" today":"")+(m.due?" "+calBtns("maint",m.id):"")+'</td>'
       +'<td class="rowact" onclick="event.stopPropagation()"><button class="btn ghost sm" onclick="maintOpen(\''+m.id+'\')">Edit</button></td></tr>';
     const det=open?'<tr class="mdt"><td colspan="7" class="mdt-td" style="padding:14px 16px">'+maintDetail(m)+'</td></tr>':"";
     return row+det;
@@ -2410,7 +2413,7 @@ function maintCard(m){
     +'<div style="display:flex;align-items:center;gap:8px;margin-top:7px;flex-wrap:wrap" onclick="event.stopPropagation()">'
       +'<select class="mstatsel '+maintTone(m.status)+'" style="min-width:96px" onchange="maintSetStatus(\''+m.id+'\',this.value)">'+MAINT_STATUS.map(o=>'<option'+(o===(m.status||"To do")?" selected":"")+'>'+esc(o)+'</option>').join("")+'</select>'
       +(m.cost?'<span class="mono" style="font-size:11px">'+esc(String(m.cost))+'</span>':"")
-      +(m.due?'<span class="mono" style="font-size:10px;color:'+(od?"var(--alert)":dt?"var(--warn)":"var(--muted)")+'">'+esc(m.due)+(od?" overdue":dt?" today":"")+'</span> '+calBtns("maint",m.id):"")
+      +(m.due?'<span class="mono" style="font-size:10px;color:'+(od?"var(--alert)":dt?"var(--warn)":"var(--muted)")+'">'+esc(maintDueLabel(m))+(od?" overdue":dt?" today":"")+'</span> '+calBtns("maint",m.id):"")
     +'</div></div>';
 }
 function maintKanban(){
@@ -2427,7 +2430,7 @@ function maintKanban(){
 function maintCalendar(){
   if(!maintUI.calMonth) maintUI.calMonth=(todayAU()||"2026-09-01").slice(0,7);
   const all=maintFiltered(); const ym=maintUI.calMonth; const ev=[];
-  all.forEach(m=>{ if(m.due&&String(m.due).slice(0,7)===ym) ev.push({date:m.due,label:(m.issue||"job"),title:(m.trade||"")+" \u00b7 "+propName(m.property)+" \u00b7 "+(m.status||"")+" (click to open)",tone:maintTone(m.status),click:"maintFocus('"+m.id+"')"}); });
+  all.forEach(m=>{ if(m.due&&String(m.due).slice(0,7)===ym){ const t=fmtTime12(m.dueTime); ev.push({date:m.due,label:(t?t+" ":"")+(m.issue||"job"),title:(t?t+" \u00b7 ":"")+(m.trade||"")+" \u00b7 "+propName(m.property)+" \u00b7 "+(m.status||"")+" (click to open)",tone:maintTone(m.status),click:"maintFocus('"+m.id+"')"}); } });
   const undated=all.filter(m=>!m.due).length;
   return calStyle()+calNav(ym,"maintCalNav")+monthGrid(ym,ev)
     +'<div class="note" style="margin-top:12px">Jobs sit on their scheduled or target date. Click one to open it. Use the Cal and ics buttons inside a job to push it to Google Calendar.'+(undated?' '+undated+' job'+(undated>1?"s have":" has")+' no date set and will not show here.':"")+'</div>';
@@ -4681,7 +4684,11 @@ function activityCard(){
    CALENDAR (add-to-calendar links, in-app agenda)
    Two-way sync is a separate OAuth integration, out of scope here.
    ============================================================ */
-function gcalUrl(title,ymd,details){
+function gcalUrl(title,ymd,details,time){
+  if(time&&/^\d{2}:\d{2}$/.test(time)){
+    const s=calStamp_(ymd,time), e=calStampPlus_(ymd,time,60);
+    return "https://calendar.google.com/calendar/render?action=TEMPLATE&text="+encodeURIComponent(title)+"&dates="+s+"/"+e+"&ctz=Australia/Brisbane&details="+encodeURIComponent(details||"");
+  }
   const s=ymd.replace(/-/g,""); const e=dateAdd(ymd,1).replace(/-/g,"");
   return "https://calendar.google.com/calendar/render?action=TEMPLATE&text="+encodeURIComponent(title)+"&dates="+s+"/"+e+"&details="+encodeURIComponent(details||"");
 }
@@ -4689,16 +4696,21 @@ function calItem(kind,id){
   if(kind&&kind.indexOf("sub:")===0){ const t=db("tasks",[]).find(x=>x.id===kind.slice(4)); if(!t)return null; const s=(t.subtasks||[]).find(x=>x.id===id); if(!s)return null; return {title:"Subtask: "+s.title,date:s.due,details:"Part of "+t.title+(s.assignee?" ["+s.assignee+"]":"")}; }
   if(kind==="task"){ const t=db("tasks",[]).find(x=>x.id===id); if(!t)return null; return {title:"Task: "+t.title,date:t.due,details:(t.notes||"")+(t.property?" ["+propName(t.property)+"]":"")}; }
   if(kind==="serv"){ const s=db("servicing",[]).find(x=>x.id===id); if(!s)return null; return {title:(s.type||"Servicing")+": "+propName(s.property),date:s.nextDue,details:(s.vendor||"")+" "+(s.notes||"")}; }
-  if(kind==="maint"){ const m=db("maintenance",[]).find(x=>x.id===id); if(!m)return null; return {title:(m.trade||"Maintenance")+": "+(m.issue||"")+(m.property?" ["+propName(m.property)+"]":""),date:m.due,details:(m.contractor||"")+" "+(m.notes||"")}; }
+  if(kind==="maint"){ const m=db("maintenance",[]).find(x=>x.id===id); if(!m)return null; return {title:(m.trade||"Maintenance")+": "+(m.issue||"")+(m.property?" ["+propName(m.property)+"]":""),date:m.due,time:m.dueTime||"",details:(m.contractor||"")+" "+(m.notes||"")}; }
   if(kind==="claim"){ const c=db("shieldClaims",[]).find(x=>x.id===id); if(!c)return null; return {title:"Guesty Shield claim deadline: "+(c.reservationCode||"claim"),date:claimDeadline(c),details:"Submit within 15 days of check-out ("+(c.checkOut||"")+"). "+propName(c.listing)}; }
   if(kind==="upsell"){ const r=upsById(id); if(!r)return null; const d=upsDue(r); return {title:"Upsell: "+upsName(r)+" ("+upsWho(r)+")",date:d.date,details:upsCalDesc(r).replace(/\n/g," | ")}; }
   return null;
 }
 function calBtns(kind,id){ return '<span class="calbtns"><button class="calbtn" onclick="event.stopPropagation();gcalOpen(\''+kind+'\',\''+id+'\')" title="Add to Google Calendar">Cal</button><button class="calbtn" onclick="event.stopPropagation();icsDownload(\''+kind+'\',\''+id+'\')" title="Download .ics">ics</button></span>'; }
-function gcalOpen(kind,id){ const c=calItem(kind,id); if(!c||!c.date){ toast("No date on this item."); return; } window.open(gcalUrl(c.title,c.date,c.details),"_blank"); }
+function calStamp_(ymd,hhmm){ return ymd.replace(/-/g,"")+"T"+hhmm.replace(":","")+"00"; }
+function calStampPlus_(ymd,hhmm,addMin){ const d=new Date(ymd+"T"+hhmm+":00"); if(isNaN(d)) return calStamp_(ymd,hhmm); d.setMinutes(d.getMinutes()+(addMin||0)); const p=n=>String(n).padStart(2,"0"); return d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+"T"+p(d.getHours())+p(d.getMinutes())+"00"; }
+function gcalOpen(kind,id){ const c=calItem(kind,id); if(!c||!c.date){ toast("No date on this item."); return; } window.open(gcalUrl(c.title,c.date,c.details,c.time),"_blank"); }
 function icsDownload(kind,id){
-  const c=calItem(kind,id); if(!c||!c.date)return; const s=c.date.replace(/-/g,""); const e=dateAdd(c.date,1).replace(/-/g,"");
-  const ics=["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//Tropical Stays//Ops Hub//EN","BEGIN:VEVENT","UID:"+id+"@tropicalstays","DTSTART;VALUE=DATE:"+s,"DTEND;VALUE=DATE:"+e,"SUMMARY:"+(c.title||"").replace(/[\n,;]/g," "),"DESCRIPTION:"+(c.details||"").replace(/[\n,;]/g," "),"END:VEVENT","END:VCALENDAR"].join("\r\n");
+  const c=calItem(kind,id); if(!c||!c.date)return;
+  let dtLines;
+  if(c.time&&/^\d{2}:\d{2}$/.test(c.time)){ dtLines=["DTSTART:"+calStamp_(c.date,c.time),"DTEND:"+calStampPlus_(c.date,c.time,60)]; }
+  else { const s=c.date.replace(/-/g,""); const e=dateAdd(c.date,1).replace(/-/g,""); dtLines=["DTSTART;VALUE=DATE:"+s,"DTEND;VALUE=DATE:"+e]; }
+  const ics=["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//Tropical Stays//Ops Hub//EN","BEGIN:VEVENT","UID:"+id+"@tropicalstays"].concat(dtLines,["SUMMARY:"+(c.title||"").replace(/[\n,;]/g," "),"DESCRIPTION:"+(c.details||"").replace(/[\n,;]/g," "),"END:VEVENT","END:VCALENDAR"]).join("\r\n");
   const b=new Blob([ics],{type:"text/calendar"}); const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download=(c.title||"event").replace(/[^a-z0-9]+/gi,"-").toLowerCase()+".ics"; a.click(); toast("ICS downloaded.");
 }
 function agendaItems(){
