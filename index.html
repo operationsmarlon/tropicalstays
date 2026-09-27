@@ -2173,93 +2173,277 @@ function statusTone(s){ return ({open:"info","progress":"warn",waiting:"sage",bl
 /* ============================================================
    MAINTENANCE
    ============================================================ */
-let maintФ={status:"open",q:"",tab:"jobs"};
-const MAINT_SUBS=[["jobs","Jobs"],["midstay","Mid-stay cleans"],["pest","Pest control"],["ac","AC"],["garden","Landscaping"],["pool","Pool maintenance"]];
-const MAINT_SERVTYPE={pest:"Pest control",ac:"Air-con",garden:"Garden",pool:"Pool"};
-function viewMaint(){
-  const tab=maintФ.tab||"jobs";
-  const tabs='<div class="subtabs">'+MAINT_SUBS.map(([k,l])=>{
-      let n=0;
-      if(k==="jobs") n=db("maintenance",[]).filter(m=>m.status!=="Done").length;
-      else if(k==="midstay") n=db("midstay",[]).filter(m=>m.status!=="Done").length;
-      else n=db("servicing",[]).filter(s=>s.type===MAINT_SERVTYPE[k]&&s.status!=="Done").length;
-      return '<button class="subtab '+(tab===k?"on":"")+'" onclick="maintФ.tab=\''+k+'\';renderPage(\'maint\')">'+esc(l)+(n?' <span class="n">'+n+'</span>':"")+'</button>';
-    }).join("")+'</div>';
-  let body;
-  if(tab==="jobs") body=maintJobs();
-  else if(tab==="midstay") body=maintMidstay();
-  else body=maintServType(tab);
-  return head("Jobs, cleans and recurring servicing","Maintenance",
-      "One-off jobs, mid-stay cleans, and the recurring trades. Anything committing a contractor, a price, or an owner cost gets an approval flag so it does not skip Isabell.")
-    +tabs+body;
+let maintUI={q:"",cat:"",view:"board",calMonth:"",open:{},collapse:{done:true}};
+const MAINT_CATS_DEFAULT="Plumbing|Electrical|Air-con|Pool|Pest control|Appliance|Cleaning|Landscaping|Handyman|Locks & access|General";
+function maintCats(){ return editableOptions("maintenance","trade",MAINT_CATS_DEFAULT); }
+const MAINT_STATUS=["To do","Quoted","Scheduled","In progress","On hold","Done"];
+const MAINT_PRIO=["P1","P2","P3"];
+const MAINT_GROUPS=[["todo","To Do","alert"],["scheduled","Scheduled","info"],["done","Completed","ok"]];
+function maintTone(s){ return ({"To do":"","Quoted":"warn","Scheduled":"info","In progress":"warn","On hold":"sage","Done":"ok"})[s]||""; }
+function maintBucket(s){ if(s==="Done")return "done"; if(s==="Scheduled"||s==="In progress")return "scheduled"; return "todo"; }
+function maintList(){ return db("maintenance",[]); }
+function maintJob(id){ return maintList().find(x=>x.id===id); }
+function maintCostNum(m){ return parseFloat(String(m.cost==null?"":m.cost).replace(/[^0-9.]/g,""))||0; }
+function maintContact(m){ if(m&&m.contactId){ const c=db("contacts",[]).find(x=>x.id===m.contactId); if(c) return c; } return m&&m.contractor?{name:m.contractor}:null; }
+
+function maintStyle(){ return '<style>'
+  +'.mgrp{display:flex;align-items:center;gap:10px;margin:18px 0 8px;cursor:pointer;user-select:none}'
+  +'.mgrp .bar{width:4px;height:20px;border-radius:3px;flex:none}'
+  +'.mgrp .bar.alert{background:var(--alert)}.mgrp .bar.info{background:var(--info)}.mgrp .bar.ok{background:var(--ok)}'
+  +'.mgrp h3{font-family:var(--disp);font-size:15px;margin:0}'
+  +'.mgrp .gct{font:10px var(--mono);color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:20px;padding:2px 8px}'
+  +'.mgrp .gsum{margin-left:auto;font:11px var(--mono);color:var(--muted)}'
+  +'.mrow{cursor:pointer}.mrow:hover{background:var(--sage-l)}'
+  +'.mrow td{vertical-align:top}'
+  +'.jobcell{display:flex;gap:8px;align-items:flex-start}'
+  +'.jobcell .caret{margin-top:2px}'
+  +'.mcount{font-size:10px;color:var(--muted);margin-left:8px;white-space:nowrap}'
+  +'.mstatsel{padding:4px 9px;font-size:11px;font-weight:600;border-radius:20px;min-width:106px;border:1px solid var(--line2);background:var(--bg);color:var(--ink2);cursor:pointer}'
+  +'.mstatsel.ok{background:var(--ok-l);border-color:var(--ok-b);color:var(--ok)}'
+  +'.mstatsel.warn{background:var(--warn-l);border-color:var(--warn-b);color:var(--warn)}'
+  +'.mstatsel.info{background:var(--info-l);border-color:var(--info-b);color:var(--info)}'
+  +'.mstatsel.alert{background:var(--alert-l);border-color:var(--alert-b);color:var(--alert)}'
+  +'.mstatsel.sage{background:var(--sage-l);border-color:var(--sage-b);color:var(--ink2)}'
+  +'.mdt{background:var(--bg)}'
+  +'.mdt-grid{display:grid;grid-template-columns:1.4fr 1fr;gap:18px}'
+  +'@media(max-width:760px){.mdt-grid{grid-template-columns:1fr}}'
+  +'.mfacts{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:11.5px;margin:2px 0 10px}'
+  +'.mfacts b{color:var(--ink2)}'
+  +'.mupd{border-left:2px solid var(--line2);padding:1px 0 1px 10px;margin:0 0 9px}'
+  +'.mupd .who{font-weight:600;font-size:11.5px}.mupd .when{color:var(--muted);font-size:10px;margin-left:6px}'
+  +'.mupd .txt{font-size:12px;margin-top:1px;white-space:pre-wrap}'
+  +'.mphotos{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}'
+  +'.mphoto{position:relative;width:78px;height:78px;border-radius:8px;overflow:hidden;border:1px solid var(--line);background:var(--card)}'
+  +'.mphoto img{width:100%;height:100%;object-fit:cover;display:block}'
+  +'.mphoto .x{position:absolute;top:3px;right:3px;width:18px;height:18px;line-height:16px;text-align:center;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;font-size:12px;border:none;cursor:pointer;padding:0}'
+  +'.mnc{border:1px dashed var(--line2);border-radius:10px;padding:10px;margin-top:6px;background:var(--bg)}'
+  +'.kboard{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;align-items:start}'
+  +'@media(max-width:820px){.kboard{grid-template-columns:1fr}}'
+  +'.kcol{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px;min-height:70px}'
+  +'.kcol-h{display:flex;align-items:center;gap:8px;font-size:12.5px;margin-bottom:10px}'
+  +'.kcol-h .bar{width:4px;height:16px;border-radius:3px}'
+  +'.kcol-h .gsum{margin-left:auto;font:11px var(--mono);color:var(--muted)}'
+  +'.kcard{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px;cursor:pointer;box-shadow:0 1px 2px rgba(16,42,27,.04)}'
+  +'.kcard:hover{border-color:var(--sage-b)}'
+  +'</style>'; }
+
+function maintContactOptions(sel){
+  const cs=db("contacts",[]).slice().sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  return '<option value="">No contact</option>'
+    +cs.map(c=>'<option value="'+c.id+'"'+(c.id===sel?" selected":"")+'>'+esc(c.name)+(c.role?" ("+esc(c.role)+")":"")+'</option>').join("")
+    +'<option value="__new__"'+(sel==="__new__"?" selected":"")+'>+ Add new contact</option>';
 }
-function maintJobs(){
-  const all=db("maintenance",[]);
-  const open=all.filter(m=>m.status!=="Done");
-  const rows=all.filter(m=>{
-      if(maintФ.status==="open"&&m.status==="Done")return false;
-      if(maintФ.status==="done"&&m.status!=="Done")return false;
-      if(maintФ.q){ const q=maintФ.q.toLowerCase(); return (m.issue+" "+(m.contractor||"")+" "+propName(m.property)+" "+(m.trade||"")).toLowerCase().indexOf(q)>=0; }
-      return true;
-    }).sort((a,b)=>(a.due||"9999").localeCompare(b.due||"9999")).map(m=>{
-      const today=todayAU(); const od=m.status!=="Done"&&m.due&&m.due<today; const dt=m.status!=="Done"&&m.due===today;
-      return '<tr><td><b>'+esc(m.issue)+'</b>'+(m.needsApproval&&m.status!=="Done"?' <span class="chip warn">Isabell approval</span>':"")+(m.notes?'<div class="muted" style="font-size:11px">'+esc(m.notes)+'</div>':"")+'</td>'
-      +'<td>'+esc(propName(m.property))+'</td><td><span class="chip sage">'+esc(m.trade||"General")+'</span></td>'
-      +'<td><span class="chip '+(m.priority==="P1"?"alert":m.priority==="P2"?"warn":"")+'">'+esc(m.priority||"P3")+'</span></td>'
-      +'<td class="mono" style="white-space:nowrap;color:'+(od?"var(--alert)":dt?"var(--warn)":"var(--ink2)")+'">'+esc(m.due||"-")+(od?" overdue":dt?" today":"")+(m.due?" "+calBtns("maint",m.id):"")+'</td>'
-      +'<td>'+esc(m.contractor||"-")+'</td>'
-      +'<td><span class="chip '+statusTone(m.status)+'">'+esc(m.status||"Reported")+'</span></td>'
-      +'<td class="rowact"><button class="btn ghost sm" onclick="openForm(\'maintenance\',\''+m.id+'\')">Edit</button> <button class="btn ghost sm" onclick="delRow(\'maintenance\',\''+m.id+'\')">Del</button></td></tr>';
-    }).join("");
-  return '<div class="filterbar">'
-      +'<input class="inp" style="max-width:220px" placeholder="Search jobs" value="'+esc(maintФ.q)+'" oninput="maintФ.q=this.value;renderPage(\'maint\')">'
-      +["open","done","all"].map(k=>'<button class="filterbtn '+(maintФ.status===k?"on":"")+'" onclick="maintФ.status=\''+k+'\';renderPage(\'maint\')">'+(k==="open"?"Open":k==="done"?"Done":"All")+'</button>').join("")
-      +'<span class="chip" style="margin-left:6px">'+open.length+' open</span>'
-      +'<button class="btn sm" style="margin-left:auto" onclick="openForm(\'maintenance\')">Log job</button>'
-    +'</div>'
-    +(rows?'<div class="card tight"><div class="wrap"><table class="tbl"><thead><tr><th>Issue</th><th>Property</th><th>Trade</th><th>Priority</th><th>Due</th><th>Contractor</th><th>Status</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>'
-          :'<div class="card"><div class="empty"><h4>No maintenance logged</h4><p>Log a job as you shadow the current process. Damage claims go through Guesty Shield, not Airbnb AirCover.</p></div></div>');
+function maintContactPick(selEl){
+  const box=document.getElementById("mj_newc"); if(box) box.style.display=(selEl.value==="__new__")?"block":"none";
 }
-function maintMidstay(){
-  const all=db("midstay",[]).slice().sort((a,b)=>(a.checkin||"9999").localeCompare(b.checkin||"9999"));
+function maintOpen(id){
+  if(!requireEdit("maintenance"))return;
+  const m=id?(maintJob(id)||{}):{};
+  maintUI.editId=id||null;
+  const propOpts='<option value="">Select property</option>'+props().map(p=>'<option value="'+p.id+'"'+(m.property===p.id?" selected":"")+'>'+esc(p.nickname)+'</option>').join("");
+  const opt=(arr,v)=>arr.map(o=>'<option'+(o===v?" selected":"")+'>'+esc(o)+'</option>').join("");
+  const roleOpts=editableOptions("contacts","role","Cleaner|Contractor|Pool|Garden|Pest control|Air-con|Electrician|Plumber|Handyman|Owner|Strata|Vendor|Team|Other").map(o=>'<option>'+esc(o)+'</option>').join("");
+  const body='<div class="field"><label>Job</label><input class="inp" id="mj_issue" placeholder="e.g. Aircon in master not cooling" value="'+esc(m.issue||"")+'"></div>'
+    +'<div class="row2"><div class="field"><label>Property</label><select class="inp" id="mj_prop">'+propOpts+'</select></div>'
+    +'<div class="field"><label>Category</label><select class="inp" id="mj_cat">'+opt(maintCats(),m.trade||"General")+'</select></div></div>'
+    +'<div class="row2"><div class="field"><label>Status</label><select class="inp" id="mj_status">'+opt(MAINT_STATUS,m.status||"To do")+'</select></div>'
+    +'<div class="field"><label>Priority</label><select class="inp" id="mj_prio">'+opt(MAINT_PRIO,m.priority||"P3")+'</select></div></div>'
+    +'<div class="row2"><div class="field"><label>Scheduled / target date</label><input class="inp" type="date" id="mj_due" value="'+esc(m.due||"")+'"></div>'
+    +'<div class="field"><label>Cost (AUD)</label><input class="inp" id="mj_cost" placeholder="e.g. 180" value="'+esc(m.cost||"")+'"></div></div>'
+    +'<div class="field"><label>Contact</label><select class="inp" id="mj_contact" onchange="maintContactPick(this)">'+maintContactOptions(m.contactId||"")+'</select></div>'
+    +'<div class="mnc" id="mj_newc" style="display:none"><div class="row2"><div class="field"><label>New contact name</label><input class="inp" id="mj_nc_name" placeholder="e.g. Dave the sparky"></div>'
+      +'<div class="field"><label>Role</label><select class="inp" id="mj_nc_role">'+roleOpts+'</select></div></div>'
+      +'<div class="row2"><div class="field"><label>Phone</label><input class="inp" id="mj_nc_phone"></div><div class="field"><label>Company</label><input class="inp" id="mj_nc_company"></div></div>'
+      +'<div class="note">Saved to Contacts too, so it is there next time.</div></div>'
+    +'<label class="chk" style="display:flex;gap:8px;align-items:center;margin:6px 0"><input type="checkbox" id="mj_appr"'+(m.needsApproval?" checked":"")+'> Needs Isabell approval (any spend or owner commitment)</label>'
+    +'<div class="field"><label>Notes</label><textarea class="inp" id="mj_notes" placeholder="What is happening, what you have tried, quotes, etc.">'+esc(m.notes||"")+'</textarea></div>';
+  openModal(id?"Edit job":"Log job",body,
+    (id?'<button class="btn ghost" style="margin-right:auto;color:var(--alert)" onclick="maintDelete(\''+id+'\')">Delete</button>':"")
+    +'<button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn" onclick="maintSave()">Save job</button>');
+}
+function maintSave(){
+  const issue=(val("mj_issue")||"").trim(); if(!issue){ toast("Add a job title."); return; }
+  let contactId=val("mj_contact"), contractor="";
+  if(contactId==="__new__"){
+    const nm=(val("mj_nc_name")||"").trim();
+    if(!nm){ toast("Add the new contact name, or pick No contact."); return; }
+    const clist=db("contacts",[]);
+    let ex=clist.find(c=>(c.name||"").toLowerCase()===nm.toLowerCase());
+    if(ex){ contactId=ex.id; contractor=ex.name; }
+    else{ const nc={id:uid("con"),name:nm,role:val("mj_nc_role")||"Contractor",phone:(val("mj_nc_phone")||"").trim(),email:"",company:(val("mj_nc_company")||"").trim(),property:val("mj_prop")||"",notes:"",created:nowISO(),updated:nowISO()}; clist.push(nc); save("contacts",clist); contactId=nc.id; contractor=nc.name; toast("Contact added to Contacts."); }
+  } else if(contactId){ const c=db("contacts",[]).find(x=>x.id===contactId); contractor=c?c.name:""; }
+  const list=maintList();
+  const data={issue:issue,property:val("mj_prop"),trade:val("mj_cat"),priority:val("mj_prio"),status:val("mj_status")||"To do",
+    due:val("mj_due"),cost:(val("mj_cost")||"").trim(),contactId:contactId||"",contractor:contractor,
+    needsApproval:!!document.getElementById("mj_appr").checked,notes:(val("mj_notes")||"").trim(),updated:nowISO()};
+  if(maintUI.editId){ const m=list.find(x=>x.id===maintUI.editId); if(m) Object.assign(m,data); }
+  else{ const m=Object.assign({id:uid("mnt"),updates:[],photos:[],created:nowISO()},data); list.push(m); maintUI.open[m.id]=false; }
+  save("maintenance",list); closeModal(); renderPage("maint");
+}
+function maintDelete(id){ confirmModal("Delete this job and its updates and photos?",function(){ save("maintenance", maintList().filter(x=>x.id!==id)); closeModal(); renderPage("maint"); }); }
+function maintSetStatus(id,val){ if(!requireEdit("maintenance"))return; const list=maintList(); const m=list.find(x=>x.id===id); if(!m)return; m.status=val; m.updated=nowISO(); save("maintenance",list); renderPage("maint"); }
+function maintToggle(id){ maintUI.open[id]=!maintUI.open[id]; renderPage("maint"); }
+function maintGroupToggle(g){ maintUI.collapse[g]=!maintUI.collapse[g]; renderPage("maint"); }
+function maintAddUpdate(id){
+  if(!requireEdit("maintenance"))return;
+  const el=document.getElementById("mu_"+id); const t=el?el.value.trim():""; if(!t){ toast("Write an update first."); return; }
+  const list=maintList(); const m=list.find(x=>x.id===id); if(!m)return; m.updates=m.updates||[];
+  m.updates.push({id:uid("upd"),at:nowISO(),who:currentUserName(),text:t}); m.updated=nowISO(); save("maintenance",list); renderPage("maint");
+}
+function maintDelUpdate(id,uidv){ const list=maintList(); const m=list.find(x=>x.id===id); if(!m)return; m.updates=(m.updates||[]).filter(u=>u.id!==uidv); m.updated=nowISO(); save("maintenance",list); renderPage("maint"); }
+function maintAddPhotos(id,input){
+  if(!requireEdit("maintenance"))return;
+  const files=input&&input.files?Array.prototype.slice.call(input.files):[]; input.value="";
+  if(!files.length)return;
+  const list=maintList(); const m=list.find(x=>x.id===id); if(!m)return; m.photos=m.photos||[];
+  let pending=files.length;
+  files.forEach(function(f){ resizeImageFile_(f,1000,function(dataUrl){ m.photos.push({id:uid("ph"),url:dataUrl,at:nowISO()}); if(--pending===0){ m.updated=nowISO(); save("maintenance",list); renderPage("maint"); } }); });
+}
+function maintDelPhoto(id,pid){ const list=maintList(); const m=list.find(x=>x.id===id); if(!m)return; m.photos=(m.photos||[]).filter(p=>p.id!==pid); m.updated=nowISO(); save("maintenance",list); renderPage("maint"); }
+
+function maintDetail(m){
+  const c=maintContact(m);
+  const facts='<div class="mfacts">'
+    +'<span><b>Category</b> '+esc(m.trade||"General")+'</span>'
+    +'<span><b>Priority</b> '+esc(m.priority||"P3")+'</span>'
+    +'<span><b>Due</b> '+esc(m.due||"-")+(m.due?' '+calBtns("maint",m.id):"")+'</span>'
+    +'<span><b>Cost</b> '+(m.cost?esc(String(m.cost)):"-")+'</span>'
+    +(m.needsApproval&&m.status!=="Done"?'<span class="chip warn">Isabell approval</span>':"")
+    +'</div>';
+  const contactBlock='<div class="sec-lbl">Contact</div>'
+    +(c?'<div style="font-size:12px;margin-bottom:10px">'+esc(c.name)+(c.role?' <span class="chip sage">'+esc(c.role)+'</span>':"")
+        +(c.phone?'<div class="muted mono" style="font-size:11px">'+esc(c.phone)+'</div>':"")
+        +(c.company?'<div class="muted" style="font-size:11px">'+esc(c.company)+'</div>':"")+'</div>'
+      :'<div class="muted" style="font-size:12px;margin-bottom:10px">No contact linked. Use Edit to add one.</div>');
+  const ups=(m.updates||[]).slice().sort((a,b)=>(b.at||"").localeCompare(a.at||""));
+  const upHTML=ups.length?ups.map(u=>'<div class="mupd"><span class="who">'+esc(u.who||"")+'</span><span class="when">'+esc(fmtWhen_(u.at))+'</span>'
+      +'<button class="btn ghost sm" style="float:right;padding:1px 6px" onclick="maintDelUpdate(\''+m.id+'\',\''+u.id+'\')">x</button>'
+      +'<div class="txt">'+esc(u.text||"")+'</div></div>').join("")
+    :'<div class="muted" style="font-size:12px;margin-bottom:8px">No updates yet.</div>';
+  const composer='<div style="display:flex;gap:7px;margin-top:6px"><textarea class="inp" id="mu_'+m.id+'" placeholder="Add an update, note or reply..." style="min-height:44px"></textarea>'
+    +'<button class="btn sm" onclick="maintAddUpdate(\''+m.id+'\')">Post</button></div>';
+  const phHTML=(m.photos&&m.photos.length)?'<div class="mphotos">'+m.photos.map(p=>'<div class="mphoto"><a href="'+esc(p.url)+'" target="_blank" rel="noopener"><img src="'+esc(p.url)+'" alt=""></a><button class="x" title="Remove" onclick="maintDelPhoto(\''+m.id+'\',\''+p.id+'\')">&times;</button></div>').join("")+'</div>':'<div class="muted" style="font-size:12px">No photos yet.</div>';
+  const photoAdd='<div style="margin-top:8px"><label class="btn ghost sm" style="cursor:pointer">Add photos<input type="file" accept="image/*" multiple style="display:none" onchange="maintAddPhotos(\''+m.id+'\',this)"></label></div>';
+  const left='<div>'+facts
+    +(m.notes?'<div class="sec-lbl">Notes</div><div style="font-size:12px;white-space:pre-wrap;margin-bottom:12px">'+esc(m.notes)+'</div>':"")
+    +'<div class="sec-lbl">Activity and updates</div>'+upHTML+composer+'</div>';
+  const right='<div>'+contactBlock
+    +'<div class="sec-lbl" style="margin-top:14px">Photos</div>'+phHTML+photoAdd
+    +'<div style="display:flex;gap:8px;margin-top:16px"><button class="btn ghost sm" onclick="maintOpen(\''+m.id+'\')">Edit job</button><button class="btn ghost sm" style="color:var(--alert)" onclick="maintDelete(\''+m.id+'\')">Delete</button></div></div>';
+  return '<div class="mdt-grid">'+left+right+'</div>';
+}
+function fmtWhen_(iso){ if(!iso)return ""; try{ return new Date(iso).toLocaleString("en-AU",{day:"numeric",month:"short",hour:"numeric",minute:"2-digit"}); }catch(e){ return iso; } }
+
+function maintRows(jobs){
   const today=todayAU();
-  const rows=all.map(m=>{
-    const soon=m.status!=="Done"&&m.cleanDate&&m.cleanDate>=today;
-    return '<tr><td><b>'+esc(m.guest||"-")+'</b>'+(m.notes?'<div class="muted" style="font-size:11px">'+esc(m.notes)+'</div>':"")+'</td>'
+  return jobs.map(m=>{
+    const open=!!maintUI.open[m.id];
+    const od=m.status!=="Done"&&m.due&&m.due<today, dt=m.status!=="Done"&&m.due===today;
+    const c=maintContact(m);
+    const nPh=(m.photos||[]).length, nUp=(m.updates||[]).length;
+    const meta=(nPh?'<span class="mcount">'+nPh+' photo'+(nPh>1?"s":"")+'</span>':"")+(nUp?'<span class="mcount">'+nUp+' update'+(nUp>1?"s":"")+'</span>':"");
+    const row='<tr class="mrow" onclick="maintToggle(\''+m.id+'\')">'
+      +'<td><div class="jobcell"><span class="caret'+(open?" open":"")+'">&#9656;</span><div><b>'+esc(m.issue||"")+'</b>'
+        +(m.needsApproval&&m.status!=="Done"?' <span class="chip warn">approval</span>':"")
+        +'<div style="margin-top:3px"><span class="chip sage">'+esc(m.trade||"General")+'</span> <span class="chip '+(m.priority==="P1"?"alert":m.priority==="P2"?"warn":"")+'">'+esc(m.priority||"P3")+'</span>'+meta+'</div></div></div></td>'
       +'<td>'+esc(propName(m.property))+'</td>'
-      +'<td class="mono">'+esc(m.checkin||"-")+'</td><td class="mono">'+esc(m.checkout||"-")+'</td>'
-      +'<td class="mono" style="color:'+(soon?"var(--info)":"var(--ink2)")+'">'+esc(m.cleanDate||"-")+'</td>'
-      +'<td>'+esc(m.cleaner||"-")+'</td>'
-      +'<td class="mono">'+esc(m.fee||"-")+(m.billTo?' <span class="chip">'+esc(m.billTo)+'</span>':"")+'</td>'
-      +'<td><span class="chip '+statusTone(m.status)+'">'+esc(m.status||"Requested")+'</span></td>'
-      +'<td class="rowact"><button class="btn ghost sm" onclick="openForm(\'midstay\',\''+m.id+'\')">Edit</button> <button class="btn ghost sm" onclick="delRow(\'midstay\',\''+m.id+'\')">Del</button></td></tr>';
+      +'<td onclick="event.stopPropagation()"><select class="mstatsel '+maintTone(m.status)+'" onchange="maintSetStatus(\''+m.id+'\',this.value)">'+MAINT_STATUS.map(o=>'<option'+(o===(m.status||"To do")?" selected":"")+'>'+esc(o)+'</option>').join("")+'</select></td>'
+      +'<td>'+(c?esc(c.name):"-")+(c&&c.phone?'<div class="muted mono" style="font-size:10px">'+esc(c.phone)+'</div>':"")+'</td>'
+      +'<td class="mono">'+(m.cost?esc(String(m.cost)):"-")+'</td>'
+      +'<td class="mono" style="white-space:nowrap;color:'+(od?"var(--alert)":dt?"var(--warn)":"var(--ink2)")+'" onclick="event.stopPropagation()">'+esc(m.due||"-")+(od?" overdue":dt?" today":"")+(m.due?" "+calBtns("maint",m.id):"")+'</td>'
+      +'<td class="rowact" onclick="event.stopPropagation()"><button class="btn ghost sm" onclick="maintOpen(\''+m.id+'\')">Edit</button></td></tr>';
+    const det=open?'<tr class="mdt"><td colspan="7" class="mdt-td" style="padding:14px 16px">'+maintDetail(m)+'</td></tr>':"";
+    return row+det;
   }).join("");
-  return '<div class="filterbar">'
-      +'<span class="chip">'+all.filter(m=>m.status!=="Done").length+' open</span>'
-      +'<button class="btn sm" style="margin-left:auto" onclick="midOpenStay()">Add stay / reservation</button>'
-    +'</div>'
-    +(rows?'<div class="card tight"><div class="wrap"><table class="tbl"><thead><tr><th>Guest</th><th>Property</th><th>Check-in</th><th>Check-out</th><th>Clean date</th><th>Cleaner</th><th>Fee</th><th>Status</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>'
-          :'<div class="card"><div class="empty"><h4>No mid-stay cleans</h4><p>Add one. Pick the guest, property and dates from the calendar pickers. Confirm the fee model and who it bills to with Isabell before it goes into guest-facing copy.</p></div></div>')
-    +'<div class="note">Fee model and revenue ownership (guest-paid vs owner-paid) need Isabell to confirm before this is offered to guests. Native Guesty upsell or a SuiteOp task is the scale path once the policy is set.</div>';
 }
-function maintServType(tab){
-  const type=MAINT_SERVTYPE[tab]; const label=(MAINT_SUBS.find(s=>s[0]===tab)||[,type])[1];
-  const all=db("servicing",[]).filter(s=>s.type===type); const today=todayAU();
-  const rows=all.sort((a,b)=>(a.nextDue||"9999").localeCompare(b.nextDue||"9999")).map(s=>{
-    const od=s.status!=="Done"&&s.nextDue&&s.nextDue<today;
-    return '<tr><td>'+esc(propName(s.property))+'</td><td>'+esc(s.vendor||"-")+'</td><td class="mono">'+esc(s.freq||"-")+'</td><td class="mono">'+esc(s.lastDone||"-")+'</td>'
-      +'<td class="mono" style="color:'+(od?"var(--alert)":"var(--ink2)")+'">'+esc(s.nextDue||"-")+(od?" overdue":"")+(s.nextDue?" "+calBtns("serv",s.id):"")+'</td>'
-      +'<td><span class="chip '+statusTone(s.status)+'">'+esc(s.status||"Scheduled")+'</span></td>'
-      +'<td class="rowact"><button class="btn ghost sm" onclick="openForm(\'servicing\',\''+s.id+'\')">Edit</button> <button class="btn ghost sm" onclick="delRow(\'servicing\',\''+s.id+'\')">Del</button></td></tr>';
-  }).join("");
+function maintFiltered(){
+  let all=maintList().slice();
+  if(maintUI.q){ const q=maintUI.q.toLowerCase(); all=all.filter(m=>((m.issue||"")+" "+propName(m.property)+" "+(m.trade||"")+" "+(m.contractor||"")+" "+(m.notes||"")).toLowerCase().indexOf(q)>=0); }
+  if(maintUI.cat){ all=all.filter(m=>(m.trade||"General")===maintUI.cat); }
+  return all;
+}
+function maintSetView(v){ maintUI.view=v; renderPage("maint"); }
+function maintFocus(id){ maintUI.view="board"; maintUI.open=maintUI.open||{}; maintUI.open[id]=true; renderPage("maint"); }
+function maintCalNav(d){ maintUI.calMonth=ymAdd(maintUI.calMonth||"2026-09",d); renderPage("maint"); }
+function maintManageCats(){ manageOptions("maintenance","trade","job categories"); }
+function maintToolbar(){
+  const catSel='<select class="inp" style="max-width:170px" onchange="maintUI.cat=this.value;renderPage(\'maint\')"><option value="">All categories</option>'+maintCats().map(c=>'<option'+(c===maintUI.cat?" selected":"")+'>'+esc(c)+'</option>').join("")+'</select>';
   return '<div class="filterbar">'
-      +'<span class="chip">'+all.filter(s=>s.status!=="Done").length+' open</span>'
-      +'<span class="muted" style="font-size:11px">Shared with the Servicing page, filtered to '+esc(label)+'.</span>'
-      +'<button class="btn sm" style="margin-left:auto" onclick="openForm(\'servicing\',null,{type:\''+esc(type)+'\'})">Add '+esc(label)+'</button>'
-    +'</div>'
-    +(rows?'<div class="card tight"><div class="wrap"><table class="tbl"><thead><tr><th>Property</th><th>Vendor</th><th>Frequency</th><th>Last done</th><th>Next due</th><th>Status</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>'
-          :'<div class="card"><div class="empty"><h4>No '+esc(label.toLowerCase())+' scheduled</h4><p>Add a schedule. These live in the shared Servicing collection, so they also show under Servicing and drive its overdue counts.</p></div></div>')
-    +'<div class="note">Recurring servicing is your first automation candidate: native SuiteOp recurring tasks beat a custom build because the housekeeping team can see them too.</div>';
+    +'<input class="inp" style="max-width:240px" placeholder="Search jobs" value="'+esc(maintUI.q)+'" oninput="maintUI.q=this.value;renderPage(\'maint\')">'
+    +catSel
+    +'<button class="btn ghost sm" onclick="maintManageCats()">Manage categories</button>'
+    +'<span class="chip" style="margin-left:6px">'+maintList().filter(m=>m.status!=="Done").length+' open</span>'
+    +'<button class="btn sm" style="margin-left:auto" onclick="maintOpen()">Log job</button>'
+    +'</div>';
+}
+function maintBoard(){
+  const all=maintFiltered();
+  let out="";
+  MAINT_GROUPS.forEach(([g,label,tone])=>{
+    const jobs=all.filter(m=>maintBucket(m.status||"To do")===g)
+      .sort((a,b)=>(a.due||"9999").localeCompare(b.due||"9999"));
+    const collapsed=!!maintUI.collapse[g];
+    const sum=jobs.reduce((s,m)=>s+maintCostNum(m),0);
+    out+='<div class="mgrp" onclick="maintGroupToggle(\''+g+'\')"><span class="bar '+tone+'"></span>'
+      +'<span class="caret'+(collapsed?"":" open")+'">&#9656;</span><h3>'+label+'</h3>'
+      +'<span class="gct">'+jobs.length+'</span>'
+      +(sum>0?'<span class="gsum">'+money(sum)+'</span>':"")+'</div>';
+    if(!collapsed){
+      out+= jobs.length
+        ? '<div class="card tight"><div class="wrap"><table class="tbl"><thead><tr><th>Job</th><th>Property</th><th>Status</th><th>Contact</th><th>Cost</th><th>Due</th><th></th></tr></thead><tbody>'+maintRows(jobs)+'</tbody></table></div></div>'
+        : '<div class="card"><div class="empty" style="padding:20px"><p style="margin:0">Nothing '+(g==="todo"?"to do":g==="scheduled"?"scheduled":"completed")+' here.</p></div></div>';
+    }
+  });
+  return out;
+}
+function maintCard(m){
+  const today=todayAU();
+  const od=m.status!=="Done"&&m.due&&m.due<today, dt=m.status!=="Done"&&m.due===today;
+  const c=maintContact(m);
+  const nPh=(m.photos||[]).length, nUp=(m.updates||[]).length;
+  const meta=(nPh?'<span class="mcount">'+nPh+'p</span>':"")+(nUp?'<span class="mcount">'+nUp+'u</span>':"");
+  return '<div class="kcard" onclick="maintFocus(\''+m.id+'\')">'
+    +'<div style="font-weight:600;font-size:12.5px;margin-bottom:5px">'+esc(m.issue||"")+(m.needsApproval&&m.status!=="Done"?' <span class="chip warn">approval</span>':"")+'</div>'
+    +'<div style="margin-bottom:6px"><span class="chip sage">'+esc(m.trade||"General")+'</span> <span class="chip '+(m.priority==="P1"?"alert":m.priority==="P2"?"warn":"")+'">'+esc(m.priority||"P3")+'</span>'+meta+'</div>'
+    +'<div class="muted" style="font-size:11px">'+esc(propName(m.property))+'</div>'
+    +(c?'<div class="muted" style="font-size:11px">'+esc(c.name)+'</div>':"")
+    +'<div style="display:flex;align-items:center;gap:8px;margin-top:7px;flex-wrap:wrap" onclick="event.stopPropagation()">'
+      +'<select class="mstatsel '+maintTone(m.status)+'" style="min-width:96px" onchange="maintSetStatus(\''+m.id+'\',this.value)">'+MAINT_STATUS.map(o=>'<option'+(o===(m.status||"To do")?" selected":"")+'>'+esc(o)+'</option>').join("")+'</select>'
+      +(m.cost?'<span class="mono" style="font-size:11px">'+esc(String(m.cost))+'</span>':"")
+      +(m.due?'<span class="mono" style="font-size:10px;color:'+(od?"var(--alert)":dt?"var(--warn)":"var(--muted)")+'">'+esc(m.due)+(od?" overdue":dt?" today":"")+'</span> '+calBtns("maint",m.id):"")
+    +'</div></div>';
+}
+function maintKanban(){
+  const all=maintFiltered();
+  const cols=MAINT_GROUPS.map(([g,label,tone])=>{
+    const jobs=all.filter(m=>maintBucket(m.status||"To do")===g).sort((a,b)=>(a.due||"9999").localeCompare(b.due||"9999"));
+    const sum=jobs.reduce((s,m)=>s+maintCostNum(m),0);
+    const cards=jobs.length?jobs.map(maintCard).join(""):'<div class="muted" style="font-size:12px;padding:8px 4px">None</div>';
+    return '<div class="kcol"><div class="kcol-h"><span class="bar '+tone+'"></span><b>'+label+'</b><span class="gct">'+jobs.length+'</span>'+(sum>0?'<span class="gsum">'+money(sum)+'</span>':"")+'</div>'+cards+'</div>';
+  }).join("");
+  return '<div class="kboard">'+cols+'</div>'
+    +'<div class="note" style="margin-top:10px">Change a card\'s status to move it between columns. Click a card to open the full job.</div>';
+}
+function maintCalendar(){
+  if(!maintUI.calMonth) maintUI.calMonth=(todayAU()||"2026-09-01").slice(0,7);
+  const all=maintFiltered(); const ym=maintUI.calMonth; const ev=[];
+  all.forEach(m=>{ if(m.due&&String(m.due).slice(0,7)===ym) ev.push({date:m.due,label:(m.issue||"job"),title:(m.trade||"")+" \u00b7 "+propName(m.property)+" \u00b7 "+(m.status||"")+" (click to open)",tone:maintTone(m.status),click:"maintFocus('"+m.id+"')"}); });
+  const undated=all.filter(m=>!m.due).length;
+  return calStyle()+calNav(ym,"maintCalNav")+monthGrid(ym,ev)
+    +'<div class="note" style="margin-top:12px">Jobs sit on their scheduled or target date. Click one to open it. Use the Cal and ics buttons inside a job to push it to Google Calendar.'+(undated?' '+undated+' job'+(undated>1?"s have":" has")+' no date set and will not show here.':"")+'</div>';
+}
+function maintBody(){
+  if(!maintList().length){
+    return '<div class="card"><div class="empty"><h4>No jobs yet</h4><p>Log a job as you shadow the current process. Pick a category, property and contact. Damage claims go through Guesty Shield, not Airbnb AirCover.</p></div></div>';
+  }
+  const v=maintUI.view||"board";
+  return v==="kanban"?maintKanban():v==="calendar"?maintCalendar():maintBoard();
+}
+function viewMaint(){
+  const seg=maintList().length?viewSeg(maintUI.view||"board",[["board","Board"],["kanban","Kanban"],["calendar","Calendar"]],"maintSetView"):"";
+  return head("Jobs and the recurring trades","Maintenance",
+      "Log one-off and reported jobs as tasks. They auto-file into To Do, Scheduled and Completed by status. Switch between Board, Kanban and Calendar. Anything committing a contractor, a price, or an owner cost gets an approval flag so it does not skip Isabell. Recurring servicing lives on the Servicing page, mid-stay cleans on their own page.")
+    +maintStyle()+maintToolbar()+seg+maintBody();
 }
 
 /* ============================================================
@@ -3310,11 +3494,11 @@ const COLLECTIONS={
     ["due","Due date","date"],["status","Status","select","open|progress|blocked|done"],
     ["attach","Photos & links","attach"],["notes","Notes","textarea"]]},
   maintenance:{singular:"Maintenance job",fields:[
-    ["issue","Issue","text"],["property","Property","propref"],
-    ["trade","Trade","select","Plumbing|Electrical|Air-con|Pool|Pest control|Appliance|General"],
+    ["issue","Job","text"],["property","Property","propref"],
+    ["trade","Category","select","Plumbing|Electrical|Air-con|Pool|Pest control|Appliance|Cleaning|Landscaping|Handyman|Locks & access|General"],
     ["priority","Priority","select","P1|P2|P3"],
-    ["status","Status","select","Reported|Quoted|Scheduled|In progress|Done"],
-    ["due","Due / target date","date"],
+    ["status","Status","select","To do|Quoted|Scheduled|In progress|On hold|Done"],
+    ["due","Scheduled / target date","date"],
     ["contractor","Contractor","people"],["cost","Estimated cost (AUD)","text"],
     ["needsApproval","Needs Isabell approval (any spend or owner commitment)","checkbox"],["notes","Notes","textarea"]]},
   servicing:{singular:"Servicing schedule",fields:[
