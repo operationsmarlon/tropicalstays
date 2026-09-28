@@ -482,6 +482,12 @@ textarea.inp{resize:vertical;min-height:64px}
 .pill.info{background:var(--info-l);color:var(--info);border-color:var(--info-b)}
 .pill.mut{background:var(--bg);color:var(--muted);border-color:var(--line)}
 .sechd{display:flex;align-items:center;gap:10px;margin:0 0 12px}
+.grphd{display:flex;align-items:center;gap:10px;margin:18px 0 8px;cursor:pointer;user-select:none}
+.grphd .bar{width:4px;height:20px;border-radius:3px;flex:none}
+.grphd .bar.alert{background:var(--alert)}.grphd .bar.info{background:var(--info)}.grphd .bar.ok{background:var(--ok)}.grphd .bar.warn{background:var(--warn)}.grphd .bar.sage{background:var(--sage-d)}
+.grphd h3{font-family:var(--disp);font-size:15px;margin:0}
+.grphd .gct{font:10px var(--mono);color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:20px;padding:2px 8px}
+.grphd .gsum{margin-left:auto;font:11px var(--mono);color:var(--muted)}
 .sechd h3{font-family:var(--disp);font-size:15px;margin:0}
 .sechd .ct{font:10px var(--mono);color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:20px;padding:2px 8px}
 .sechd .sp{margin-left:auto;display:flex;gap:8px}
@@ -1611,7 +1617,7 @@ function midHero(){
     ["2. Contact guest","Coordinate","Arrange a suitable mid-stay clean date with the guest","htag-blue"],
     ["3. Key access","Property","Guest leaves the key in the lockbox or letterbox","htag-gold"],
     ["4. Advise Julie","Roster","Confirm date and access so the clean is rostered","htag-green"],
-    ["5. Julie invoicing","Separate","Julie invoices all mid-stay cleans separately","htag-purple"]
+    ["5. Clean done","Complete","Julie confirms the mid-stay clean is finished","htag-purple"]
   ];
   return '<div class="hero"><div class="hero-t">Standard operating procedure, mid-stay cleans</div>'
     +'<div class="hero-s">Housekeeping manager Julie at Sea Side Cleaning. Message the guest first, then schedule with Julie. Mandatory for stays over 14 nights.</div>'
@@ -1620,7 +1626,7 @@ function midHero(){
     +'</div>';
 }
 
-const MID_SOP_STEPS=[["s1","Marlon >14n review"],["s2","Guest contacted for date"],["s3","Key access confirmed"],["s4","Advised Julie (rostered)"],["s5","Julie invoiced separately"]];
+const MID_SOP_STEPS=[["s1","Marlon >14n review"],["s2","Guest contacted for date"],["s3","Key access confirmed"],["s4","Advised Julie (rostered)"],["s6","Clean done"]];
 function cleanCard(resId,c){
   const sel=CLEAN_STATUS.map(o=>'<option'+(o===c.status?" selected":"")+'>'+o+'</option>').join("");
   return '<div class="cleancard">'
@@ -1650,7 +1656,7 @@ function midResCard(r){
   const cleans=r.cleans||[]; const paid=cleans.filter(c=>c.status==="Paid"||c.status==="Done").length;
   const sop=r.sop||{}; const sopDone=MID_SOP_STEPS.filter(s=>sop[s[0]]).length;
   const open=!!midState.open[r.id];
-  const done=midResDone(r);
+  const done=midResBucket(r)==="done";
   const propTitle=r.listingId?propName(r.listingId):(r.listing||"").split(" / ")[0];
   const header='<div class="resh" onclick="midToggle(\''+r.id+'\')">'
     +'<span class="caret'+(open?" open":"")+'">&#9656;</span>'
@@ -1673,23 +1679,32 @@ function midResCard(r){
   }
   return '<div class="rescard">'+header+body+'</div>';
 }
+const MID_GROUPS=[["todo","To Do","alert"],["scheduled","Scheduled","info"],["done","Completed","ok"]];
+function midResBucket(r){
+  const sop=r.sop||{};
+  if(sop.s6) return "done";        // Clean done ticked
+  if(sop.s4) return "scheduled";   // Advised Julie ticked, clean is rostered
+  return "todo";                    // SOP not yet progressed to a rostered clean
+}
+function midToggleGrp(g){ midState.collapse=midState.collapse||{done:true}; midState.collapse[g]=!midState.collapse[g]; renderPage("midstay"); }
 function midStays(list){
-  midState.open=midState.open||{};
+  midState.open=midState.open||{}; midState.collapse=midState.collapse||{done:true};
   const sorted=list.slice().sort((a,b)=>(a.in||"").localeCompare(b.in||""));
-  const active=sorted.filter(r=>!midResDone(r));
-  const done=sorted.filter(r=>midResDone(r)).reverse(); // most recent checkout first
-  const activeHTML=active.length?active.map(midResCard).join("")
-    :'<div class="card"><div class="empty"><h4>Nothing outstanding</h4><p>Every current stay is either wrapped up below or has no cleans left to action.</p></div></div>';
-  let out=activeHTML;
-  if(done.length){
-    const openG=!!midState.showDone;
-    out+='<div class="sechd" style="margin-top:18px;cursor:pointer" onclick="midToggleDone()">'
-      +'<span class="caret'+(openG?" open":"")+'">&#9656;</span>'
-      +'<h3 style="font-size:13px">Completed</h3><span class="ct">'+done.length+'</span>'
-      +'<span class="muted" style="font-size:11px;margin-left:8px">checked out, all cleans done</span></div>';
-    if(openG) out+='<div style="opacity:.9">'+done.map(midResCard).join("")+'</div>';
-  }
-  return sorted.length?out:'<div class="card"><div class="empty"><h4>No stays yet</h4><p>Use Add stay / reservation above to create one, then open it to add cleans.</p></div></div>';
+  if(!sorted.length) return '<div class="card"><div class="empty"><h4>No stays yet</h4><p>Use Add stay / reservation above to create one, then open it to add cleans.</p></div></div>';
+  let out="";
+  MID_GROUPS.forEach(([g,label,tone])=>{
+    let items=sorted.filter(r=>midResBucket(r)===g);
+    if(g==="done") items=items.reverse();
+    const collapsed=!!midState.collapse[g];
+    out+='<div class="grphd" onclick="midToggleGrp(\''+g+'\')"><span class="bar '+tone+'"></span>'
+      +'<span class="caret'+(collapsed?"":" open")+'">&#9656;</span><h3>'+label+'</h3><span class="gct">'+items.length+'</span>'
+      +(g==="done"?'<span class="muted" style="font-size:11px;margin-left:8px">clean done ticked</span>':"")+'</div>';
+    if(!collapsed){
+      out+= items.length? items.map(midResCard).join("")
+        : '<div class="card"><div class="empty" style="padding:18px"><p style="margin:0">Nothing '+(g==="todo"?"to do":g==="scheduled"?"scheduled":"completed")+'.</p></div></div>';
+    }
+  });
+  return out;
 }
 function midLog(list){
   const flat=[]; list.forEach(r=>(r.cleans||[]).forEach(c=>{ if(c.status==="Paid"||c.status==="Done") flat.push({r:r,c:c}); }));
@@ -1711,12 +1726,11 @@ function midLog(list){
 }
 function midCalendar(list){
   if(!midState.calMonth) midState.calMonth="2026-09";
-  const ym=midState.calMonth; const p=ym.split("-").map(Number); const days=new Date(p[0],p[1],0).getDate();
-  const inHouse={}; list.forEach(r=>{ if(!r.in||!r.out)return; for(let d=1;d<=days;d++){ const ds=ym+"-"+String(d).padStart(2,"0"); if(r.in<=ds&&ds<=r.out) inHouse[ds]=(inHouse[ds]||0)+1; } });
-  const ev=[]; Object.keys(inHouse).forEach(ds=>ev.push({date:ds,label:inHouse[ds]+" in house",tone:"muted"}));
+  const ym=midState.calMonth;
+  const ev=[];
   list.forEach(r=>(r.cleans||[]).forEach(c=>{ if(c.date&&String(c.date).slice(0,7)===ym) ev.push({date:c.date,label:"Clean "+(r.code||r.guest||""),title:(r.guest||"")+" \u00b7 "+(c.service||"Mid-Stay Clean")+" \u00b7 "+c.status+" (click to open)",tone:cleanTone(c.status),click:"midOpenClean('"+r.id+"','"+c.id+"')"}); }));
   return calStyle()+calNav(ym,"midCalNav")+monthGrid(ym,ev)
-    +'<div class="note" style="margin-top:12px">Click a clean to open and edit it. Green paid or done, amber outstanding, blue pending. Grey shows how many stays are in house that day.</div>';
+    +'<div class="note" style="margin-top:12px">Click a clean to open and edit it. Green paid or done, amber outstanding, blue pending.</div>';
 }
 function viewMidstay(){
   const list=midNormalize();
@@ -1935,7 +1949,7 @@ function taskToolbar(){
   const asgSel='<select class="inp" style="max-width:150px" onchange="taskФ.assignee=this.value;renderPage(\'tasks\')"><option value="">Everyone</option>'+assignees.map(a=>'<option '+(taskФ.assignee===a?"selected":"")+'>'+esc(a)+'</option>').join("")+'</select>';
   const prioSel='<select class="inp" style="max-width:110px" onchange="taskФ.prio=this.value;renderPage(\'tasks\')"><option value="">Any priority</option>'+["P1","P2","P3"].map(p=>'<option '+(taskФ.prio===p?"selected":"")+'>'+p+'</option>').join("")+'</select>';
   const grpSel=taskФ.view==="board"?'<select class="inp" style="max-width:150px" onchange="taskФ.group=this.value;renderPage(\'tasks\')">'+[["status","Group: Status"],["assignee","Group: Assignee"],["property","Group: Property"],["priority","Group: Priority"]].map(([k,l])=>'<option value="'+k+'" '+(taskФ.group===k?"selected":"")+'>'+l+'</option>').join("")+'</select>':"";
-  const statusChips=taskФ.view==="list"?[["open","Not started"],["progress","In progress"],["waiting","Waiting"],["blocked","Blocked"],["done","Completed"],["all","All"]].map(([k,l])=>'<button class="filterbtn '+(taskФ.status===k?"on":"")+'" onclick="taskФ.status=\''+k+'\';renderPage(\'tasks\')">'+l+'</button>').join(""):"";
+  const statusChips="";
   return '<div class="filterbar">'
       +'<div class="seg">'+vbtn("list","List")+vbtn("board","Board")+vbtn("calendar","Calendar")+'</div>'
       +'<input class="inp" style="max-width:180px" placeholder="Search tasks" value="'+esc(taskФ.q)+'" oninput="taskФ.q=this.value;renderPage(\'tasks\')">'
@@ -1992,27 +2006,43 @@ function taskCard(t,ctx){
       +'<span class="mono" style="margin-left:auto;font-size:10px;color:'+(od?"var(--alert)":dt?"var(--warn)":"var(--muted)")+'">'+(t.due?esc(t.due)+(od?" overdue":dt?" today":""):"no date")+'</span></div>'
     +'</div>';
 }
+const TASK_GROUPS=[["todo","To Do","alert"],["prog","In Progress","info"],["done","Completed","ok"]];
+function taskBucket(t){ const s=t.status||"open"; if(s==="done"||s==="cancelled")return "done"; if(s==="progress"||s==="waiting")return "prog"; return "todo"; }
+function taskGroupToggle(g){ taskФ.collapse=taskФ.collapse||{done:true}; taskФ.collapse[g]=!taskФ.collapse[g]; renderPage("tasks"); }
+function taskRow_(t){
+  const today=todayAU(); const od=taskActive(t)&&t.due&&t.due<today; const dt=taskActive(t)&&t.due===today; const sp=subProgress(t); const o='onclick="openTask(\''+t.id+'\')"';
+  return '<tr class="clickrow"><td onclick="event.stopPropagation()" style="width:26px"><input type="checkbox" '+(taskSel[t.id]?"checked":"")+' onchange="taskSelToggle(\''+t.id+'\',this.checked)"></td>'
+    +'<td '+o+'><b>'+esc(t.title)+'</b>'+(sp.total?' <span class="muted mono" style="font-size:10px">'+sp.done+'/'+sp.total+'</span>':'')+((t.updates&&t.updates.length)?' <span class="chip" style="padding:0 5px">'+t.updates.length+' upd</span>':'')+'</td>'
+    +'<td '+o+'>'+(t.property?esc(propName(t.property)):'<span class="chip sage">Tropical Stays</span>')+'</td>'
+    +'<td '+o+'><span class="chip '+(t.priority==="P1"?"alert":t.priority==="P2"?"warn":"")+'">'+esc(t.priority||"P3")+'</span></td>'
+    +'<td '+o+'>'+esc(t.assignee||"-")+(Array.isArray(t.collaborators)&&t.collaborators.length?' <span class="chip" style="padding:0 5px">+'+t.collaborators.length+'</span>':"")+'</td>'
+    +'<td '+o+' class="mono" style="white-space:nowrap;color:'+(od?"var(--alert)":dt?"var(--warn)":"var(--ink2)")+'">'+esc(t.due||"-")+(od?" overdue":dt?" today":"")+(t.due?" "+calBtns("task",t.id):"")+'</td>'
+    +'<td onclick="event.stopPropagation()">'+taskStatusSelect(t.id,t.status)+'</td></tr>';
+}
 function taskList(){
-  const list=taskFilters(db("tasks",[])).sort((a,b)=>(a.due||"9999").localeCompare(b.due||"9999"));
-  const today=todayAU(); const ids=list.map(t=>t.id); const selCount=ids.filter(i=>taskSel[i]).length;
+  const list=taskFilters(db("tasks",[]),true).sort((a,b)=>(a.due||"9999").localeCompare(b.due||"9999"));
+  const ids=list.map(t=>t.id); const selCount=ids.filter(i=>taskSel[i]).length;
   const bar=selCount?'<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;padding:8px 10px;background:var(--card2,#f1f4ef);border-radius:8px"><b>'+selCount+' selected</b>'
     +'<button class="btn ghost sm" onclick="taskSelClear()">Clear</button><span style="margin-left:auto"></span>'
     +'<button class="btn ghost sm" onclick="taskBulkAssign()">Reassign</button>'
     +'<button class="btn ghost sm" onclick="taskBulkStatus(\'done\')">Mark done</button>'
     +'<button class="btn ghost sm" onclick="taskBulkStatus(\'cancelled\')">Cancel</button>'
     +'<button class="btn danger sm" onclick="taskBulkDelete()">Delete selected</button></div>':'';
-  const allOn=ids.length&&ids.every(i=>taskSel[i]);
-  const rows=list.map(t=>{ const od=taskActive(t)&&t.due&&t.due<today; const dt=taskActive(t)&&t.due===today; const sp=subProgress(t); const o='onclick="openTask(\''+t.id+'\')"';
-    return '<tr class="clickrow"><td onclick="event.stopPropagation()" style="width:26px"><input type="checkbox" '+(taskSel[t.id]?"checked":"")+' onchange="taskSelToggle(\''+t.id+'\',this.checked)"></td>'
-      +'<td '+o+'><b>'+esc(t.title)+'</b>'+(sp.total?' <span class="muted mono" style="font-size:10px">'+sp.done+'/'+sp.total+'</span>':'')+((t.updates&&t.updates.length)?' <span class="chip" style="padding:0 5px">'+t.updates.length+' upd</span>':'')+'</td>'
-      +'<td '+o+'>'+(t.property?esc(propName(t.property)):'<span class="chip sage">Tropical Stays</span>')+'</td>'
-      +'<td '+o+'><span class="chip '+(t.priority==="P1"?"alert":t.priority==="P2"?"warn":"")+'">'+esc(t.priority||"P3")+'</span></td>'
-      +'<td '+o+'>'+esc(t.assignee||"-")+(Array.isArray(t.collaborators)&&t.collaborators.length?' <span class="chip" style="padding:0 5px">+'+t.collaborators.length+'</span>':"")+'</td>'
-      +'<td '+o+' class="mono" style="color:'+(od?"var(--alert)":dt?"var(--warn)":"var(--ink2)")+'">'+esc(t.due||"-")+(od?" overdue":dt?" today":"")+'</td>'
-      +'<td onclick="event.stopPropagation()">'+taskStatusSelect(t.id,t.status)+'</td></tr>';
-  }).join("");
-  return bar+(rows?'<div class="card tight"><div class="wrap"><table class="tbl"><thead><tr><th style="width:26px"><input type="checkbox" '+(allOn?"checked":"")+' onchange="taskSelAllList()" title="Select all"></th><th>Task</th><th>Property</th><th>Priority</th><th>Assignee</th><th>Due</th><th>Status</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>'
-      :'<div class="card"><div class="empty"><h4>No tasks here</h4><p>Add one, or clear filters. Recurring servicing lives under Maintenance.</p></div></div>');
+  if(!list.length) return bar+'<div class="card"><div class="empty"><h4>No tasks here</h4><p>Add one, or clear filters. Recurring servicing lives under Maintenance.</p></div></div>';
+  taskФ.collapse=taskФ.collapse||{done:true};
+  let out="";
+  TASK_GROUPS.forEach(([g,label,tone])=>{
+    const items=list.filter(t=>taskBucket(t)===g);
+    const collapsed=!!taskФ.collapse[g];
+    out+='<div class="grphd" onclick="taskGroupToggle(\''+g+'\')"><span class="bar '+tone+'"></span>'
+      +'<span class="caret'+(collapsed?"":" open")+'">&#9656;</span><h3>'+label+'</h3><span class="gct">'+items.length+'</span></div>';
+    if(!collapsed){
+      out+= items.length
+        ? '<div class="card tight"><div class="wrap"><table class="tbl"><thead><tr><th style="width:26px"></th><th>Task</th><th>Property</th><th>Priority</th><th>Assignee</th><th>Due</th><th>Status</th></tr></thead><tbody>'+items.map(taskRow_).join("")+'</tbody></table></div></div>'
+        : '<div class="card"><div class="empty" style="padding:18px"><p style="margin:0">Nothing '+(g==="todo"?"to do":g==="prog"?"in progress":"completed")+'.</p></div></div>';
+    }
+  });
+  return bar+out;
 }
 function taskBoard(){
   const list=taskFilters(db("tasks",[]),true);
@@ -2430,7 +2460,7 @@ function maintKanban(){
 function maintCalendar(){
   if(!maintUI.calMonth) maintUI.calMonth=(todayAU()||"2026-09-01").slice(0,7);
   const all=maintFiltered(); const ym=maintUI.calMonth; const ev=[];
-  all.forEach(m=>{ if(m.due&&String(m.due).slice(0,7)===ym){ const t=fmtTime12(m.dueTime); ev.push({date:m.due,label:(t?t+" ":"")+(m.issue||"job"),title:(t?t+" \u00b7 ":"")+(m.trade||"")+" \u00b7 "+propName(m.property)+" \u00b7 "+(m.status||"")+" (click to open)",tone:maintTone(m.status),click:"maintFocus('"+m.id+"')"}); } });
+  all.forEach(m=>{ if(m.due&&String(m.due).slice(0,7)===ym){ const t=fmtTime12(m.dueTime); ev.push({date:m.due,label:(t?t+" ":"")+(m.issue||"job"),title:(t?t+" \u00b7 ":"")+(m.trade||"")+" \u00b7 "+propName(m.property)+" \u00b7 "+(m.status||"")+" (click to open)",tone:maintTone(m.status),click:"maintOpen('"+m.id+"')"}); } });
   const undated=all.filter(m=>!m.due).length;
   return calStyle()+calNav(ym,"maintCalNav")+monthGrid(ym,ev)
     +'<div class="note" style="margin-top:12px">Jobs sit on their scheduled or target date. Click one to open it. Use the Cal and ics buttons inside a job to push it to Google Calendar.'+(undated?' '+undated+' job'+(undated>1?"s have":" has")+' no date set and will not show here.':"")+'</div>';
@@ -4496,6 +4526,11 @@ function viewEOD(){
       +card("Completed",list(d.routines.done.concat(d.taskDone.map(t=>t.title))))
       +card("In progress and not started",'<div class="sec-lbl">In progress</div>'+list(d.routines.doing.concat(d.taskOpen.filter(t=>t.status==="progress").map(t=>t.title)))+'<div class="sec-lbl" style="margin-top:10px">Not started</div>'+list(d.routines.todo))
     +'</div>'
+    +'<div class="card" style="margin-top:16px"><div class="card-hd"><h3>Logged in the hub today</h3><span class="chip">'+d.activity.length+'</span></div><div class="card-bd">'
+      +'<div class="muted" style="font-size:11px;margin-bottom:6px">Auto-captured from what you did in the hub (adds, edits, status changes, deletes), so anything you forgot to write up is still here.</div>'
+      +(d.activity.length?('<ul style="margin:4px 0 0;padding-left:18px">'+d.activity.map(a=>'<li style="margin:2px 0"><span class="mono muted" style="font-size:10px">'+esc(a.time)+'</span> '+esc(a.text)+(a.n>1?' <span class="muted">(x'+a.n+')</span>':'')+'</li>').join("")+'</ul>')
+        :'<div class="muted" style="font-size:12px">No hub activity logged for this day.</div>')
+    +'</div></div>'
     +'<div class="card" style="margin-top:16px"><div class="card-bd">'
       +'<div class="field"><label>Wins today</label><textarea class="inp" id="eod_wins"></textarea></div>'
       +'<div class="field"><label>Guest or owner notes</label><textarea class="inp" id="eod_guest"></textarea></div>'
@@ -4510,6 +4545,21 @@ function viewEOD(){
     +'</div></div>'
     +(rows?'<div class="card tight" style="margin-top:16px"><div class="wrap"><table class="tbl"><thead><tr><th>Date</th><th>VA</th><th>Done</th><th>Wins</th><th>Blockers</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>':"");
 }
+const ACT_VERB={add:"Added",edit:"Updated",delete:"Deleted",update:"Noted on",restore:"Restored"};
+function fmtActTime(iso){ if(!iso)return ""; try{ return new Date(iso).toLocaleTimeString("en-AU",{hour:"numeric",minute:"2-digit"}); }catch(e){ return ""; } }
+function eodActivity(va,date){
+  const raw=db("activity",[]).filter(a=>(a.at||"").slice(0,10)===date && (va==="All"||a.who===va));
+  raw.sort((a,b)=>(a.at||"").localeCompare(b.at||""));
+  const seen={}, out=[];
+  raw.forEach(a=>{
+    const sing=(typeof COLLECTIONS!=="undefined"&&COLLECTIONS[a.store]&&COLLECTIONS[a.store].singular)||a.store;
+    const text=(ACT_VERB[a.action]||a.action)+" "+String(sing).toLowerCase()+": "+a.label;
+    const key=a.action+"|"+a.store+"|"+a.label;
+    if(seen[key]){ out[seen[key]-1].time=fmtActTime(a.at); out[seen[key]-1].n++; return; }
+    seen[key]=out.length+1; out.push({time:fmtActTime(a.at),text:text,who:a.who,n:1});
+  });
+  return out;
+}
 function buildEODData(va,date){
   const routines=db("dailyRoutines",[]).filter(r=>r.active!==false).filter(r=> va==="All" ? true : (r.va===va||r.va==="Any"));
   const log=(db("dailyLog",{})[date])||{};
@@ -4519,7 +4569,7 @@ function buildEODData(va,date){
   const tasks=db("tasks",[]).filter(t=> va==="All" ? true : (t.assignee===va));
   const taskDone=tasks.filter(t=>t.status==="done"&&(t.updated||"").slice(0,10)===date);
   const taskOpen=tasks.filter(t=>t.status!=="done"&&t.status!=="cancelled");
-  return {va:va,date:date,routines:{done:done,doing:doing,todo:todo,total:total,pct:pct},taskDone:taskDone,taskOpen:taskOpen};
+  return {va:va,date:date,routines:{done:done,doing:doing,todo:todo,total:total,pct:pct},taskDone:taskDone,taskOpen:taskOpen,activity:eodActivity(va,date)};
 }
 function eodReportText(){
   eodInit(); const d=buildEODData(eodVA,eodDate);
@@ -4532,6 +4582,7 @@ function eodReportText(){
     +"IN PROGRESS\n"+bl(d.routines.doing.concat(d.taskOpen.filter(t=>t.status==="progress").map(t=>t.title)))+"\n\n"
     +"NOT STARTED\n"+bl(d.routines.todo)+"\n\n"
     +"STILL OPEN (one-off tasks)\n"+bl(d.taskOpen.filter(t=>t.status!=="progress").map(t=>t.title+(t.due?" (due "+t.due+")":"")))+"\n\n"
+    +"HUB ACTIVITY (auto-logged from the hub)\n"+bl(d.activity.map(a=>(a.time?a.time+" - ":"")+a.text+(a.n>1?" (x"+a.n+")":"")))+"\n\n"
     +"WINS\n"+(wins?wins:"- None")+"\n\n"
     +"GUEST OR OWNER NOTES\n"+(guest?guest:"- None")+"\n\n"
     +"BLOCKERS / NEEDS ISABELL\n"+(blockers?blockers:"- None")+"\n";
@@ -4551,6 +4602,7 @@ function eodCsv(){ eodInit(); const d=buildEODData(eodVA,eodDate);
   d.routines.todo.forEach(t=>rows.push(["Checklist",t,"Not started"]));
   d.taskDone.forEach(t=>rows.push(["Task",t.title,"Completed"]));
   d.taskOpen.forEach(t=>rows.push(["Task",t.title,t.status==="progress"?"In progress":"Open"]));
+  d.activity.forEach(a=>rows.push(["Hub activity",a.text+(a.n>1?" (x"+a.n+")":""),a.time]));
   const head=["Tropical Stays EOD","VA: "+d.va,"Date: "+d.date,"Checklist: "+d.routines.pct+"%"].map(cell).join(",");
   const csv=head+"\n"+rows.map(r=>r.map(cell).join(",")).join("\n");
   dl("ts-eod-"+d.va.toLowerCase()+"-"+d.date+".csv","text/csv",csv); toast("Sheet downloaded.");
@@ -4567,6 +4619,7 @@ function eodDoc(){ eodInit(); const d=buildEODData(eodVA,eodDate);
     +'<h2>In progress</h2>'+ul(d.routines.doing.concat(d.taskOpen.filter(t=>t.status==="progress").map(t=>t.title)))
     +'<h2>Not started</h2>'+ul(d.routines.todo)
     +'<h2>Still open (one-off tasks)</h2>'+ul(d.taskOpen.filter(t=>t.status!=="progress").map(t=>t.title+(t.due?" (due "+t.due+")":"")))
+    +'<h2>Hub activity (auto-logged)</h2>'+ul(d.activity.map(a=>(a.time?a.time+" - ":"")+a.text+(a.n>1?" (x"+a.n+")":"")))
     +'<h2>Wins</h2>'+(wins?"<p>"+esc(wins)+"</p>":"<p style='color:#666'>None</p>")
     +'<h2>Guest or owner notes</h2>'+(guest?"<p>"+esc(guest)+"</p>":"<p style='color:#666'>None</p>")
     +'<h2>Blockers / needs Isabell</h2>'+(blockers?"<p>"+esc(blockers)+"</p>":"<p style='color:#666'>None</p>")
@@ -4580,6 +4633,7 @@ function submitEOD(){
     completed:d.routines.done.concat(d.taskDone.map(t=>t.title)),
     inProgress:d.routines.doing, notStarted:d.routines.todo,
     wins:val("eod_wins"),guest:val("eod_guest"),blockers:val("eod_blockers"),
+    activity:d.activity.map(a=>a.text+(a.n>1?" (x"+a.n+")":"")),
     text:eodReportText(),openTasks:d.taskOpen.length,created:nowISO()};
   const l=db("eodReports",[]); l.push(e); save("eodReports",l);
   fireWebhook("eod",e); toast("EOD submitted."); renderPage("eod");
@@ -4670,7 +4724,7 @@ function syncEditLockBtn(){ const b=document.getElementById("elockBtn"); if(!b)r
    ACTIVITY LOG + UNDO
    ============================================================ */
 function labelFor(store,obj){ const o=obj||{}; return o.title||o.nickname||o.name||o.task||o.issue||o.question||o.trigger||o.item||o.label||((COLLECTIONS[store]||{}).singular)||store; }
-function logAct(action,store,label){ const l=db("activity",[]); l.push({id:uid("act"),at:nowISO(),who:currentUserName(),action:action,store:store,label:label}); if(l.length>60) l.splice(0,l.length-60); save("activity",l); }
+function logAct(action,store,label){ const l=db("activity",[]); l.push({id:uid("act"),at:nowISO(),who:currentUserName(),action:action,store:store,label:label}); if(l.length>400) l.splice(0,l.length-400); save("activity",l); }
 function timeShort(iso){ try{ return new Date(iso).toLocaleString([],{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"}); }catch(e){ return ""; } }
 function undoLastDelete(){ const ld=db("lastDeleted",null); if(!ld){ toast("Nothing to undo."); return; } const list=db(ld.store,[]); list.push(ld.record); save(ld.store,list); logAct("restore",ld.store,ld.label); save("lastDeleted",null); toast("Restored."); renderPage(currentTab); }
 function activityCard(){
