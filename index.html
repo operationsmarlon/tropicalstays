@@ -932,9 +932,6 @@ const NAV=[
     {k:"transcript",label:"Transcript to tasks",icon:"task",crumb:"Overview"},
     {k:"notif",label:"Notifications",icon:"chat",crumb:"Overview",badge:"notif"},
   ]},
-  {grp:"Admin", items:[
-    {k:"admin",label:"Admin tasks",icon:"doc",crumb:"Admin",badge:"admin"},
-  ]},
   {grp:"Operations", items:[
     {k:"coverage",label:"Shift & coverage",icon:"clock",crumb:"Operations"},
     {k:"midstay",label:"Mid-stay cleans",icon:"cal",crumb:"Operations"},
@@ -1018,10 +1015,10 @@ function setActiveNav(k){ document.querySelectorAll(".nb").forEach(b=>b.classLis
 function updateNavBadges(){
   const t=db("tasks",[]).filter(x=>x.status!=="done"&&x.status!=="cancelled").length;
   const tp=db("tasks",[]).filter(x=>x.status!=="done"&&x.status!=="cancelled"&&(x.priority==="P1"||x.priority==="P2")).length;
-  const m=db("maintenance",[]).filter(x=>x.status!=="Done").length;
+  const m=maintLegacy().filter(x=>x.status!=="Done").length;
   const today=todayAU();
   const so=db("servicing",[]).filter(x=>x.status!=="Done"&&x.nextDue&&x.nextDue<today).length;
-  setBadge("tasks",t,tp>0); setBadge("maint",m,db("maintenance",[]).some(x=>x.needsApproval&&x.status!=="Done")); setBadge("serv",so,so>0); try{ const ad=adminAll().filter(x=>x.status!=="done").length; setBadge("admin",ad,false); }catch(e){} try{const nu=notifUnread(currentUserName()); setBadge("notif",nu,nu>0);}catch(e){}
+  setBadge("tasks",t,tp>0); setBadge("maint",m,maintLegacy().some(x=>x.needsApproval&&x.status!=="Done")); setBadge("serv",so,so>0); try{const nu=notifUnread(currentUserName()); setBadge("notif",nu,nu>0);}catch(e){}
   document.getElementById("footProps").textContent=db("properties",[]).length;
 }
 function setBadge(id,n,warn){ const el=document.getElementById("nbc_"+id); if(!el)return; if(!n){ el.style.display="none"; return; } el.style.display=""; el.textContent=n; el.classList.toggle("warn",!!warn); }
@@ -1031,12 +1028,13 @@ function setBadge(id,n,warn){ const el=document.getElementById("nbc_"+id); if(!e
    ============================================================ */
 function renderPage(k){
   lockVault();
+  taskScope=(k==="maint")?"Maintenance":"";
   if(k&&k.indexOf("sec:")===0){ const s=sectionById(k.slice(4)); document.getElementById("crumb").textContent="Spaces"; document.getElementById("title").textContent=s?s.name:"Section"; setActiveNav(k); document.getElementById("page").innerHTML=s?viewCustomSection(s.id):viewDash(); updateNavBadges(); syncEditLockBtn(); return; }
   const meta=NAVMAP[k]||NAVMAP.dash;
   document.getElementById("crumb").textContent=meta.crumb;
   document.getElementById("title").textContent=meta.label;
   setActiveNav(k);
-  const map={myday:viewMyDay,daily:viewDaily,transcript:viewTranscript,coverage:viewCoverage,midstay:viewMidstay,dash:viewDash,admin:viewAdmin,tasks:viewTasks,maint:viewMaint,serv:viewServ,props:viewProps,pipe:viewPipe,
+  const map={myday:viewMyDay,daily:viewDaily,transcript:viewTranscript,coverage:viewCoverage,midstay:viewMidstay,dash:viewDash,tasks:viewTasks,maint:viewMaint,serv:viewServ,props:viewProps,pipe:viewPipe,
     sops:()=>viewGeneric("sops"),flows:()=>viewGeneric("workflows"),guest:()=>viewGeneric("guestComms"),
     quick:()=>viewGeneric("quickReplies"),faqs:()=>viewFaqs(),resources:()=>viewGeneric("resources"),
     team:viewTeam,sheets:viewSheets,eod:viewEOD,reviews:viewReviews,notif:viewNotif,owners:viewOwners,revanalytics:viewReviewsAnalysis,balances:viewBalances,groups:viewGroups,linen:viewLinen,consum:viewConsumables,shield:viewShield,edit:viewEdit,contacts:viewContacts};
@@ -1062,8 +1060,6 @@ const SEARCH_MAP=[
   {store:"workflows",tab:"flows",singular:"Workflow",label:"trigger",form:true},
   {store:"guestComms",tab:"guest",singular:"Template",label:"name",form:true},
   {store:"resources",tab:"resources",singular:"Resource",label:"name",scope:"scope",form:true},
-  {store:"adminTasks",tab:"admin",singular:"Admin task",label:"title",form:true},
-  {store:"maintenance",tab:"maint",singular:"Maintenance",label:"issue",propRef:"property",form:true},
   {store:"servicing",tab:"serv",singular:"Servicing",label:"type",propRef:"property",form:true},
   {store:"pipeline",tab:"pipe",singular:"Pipeline",label:"step",propRef:"property",form:true},
   {store:"reviews",tab:"reviews",singular:"Review",label:"guest",propRef:"property",form:true},
@@ -1141,7 +1137,7 @@ function propPet(p){ if(p.pets!=null) return p.pets; const s=((p.title||"")+" "+
 function bedbathOff(p){ return (typeof p.bedrooms==="number"&&typeof p.bathrooms==="number"&&p.bathrooms>p.bedrooms&&p.bathrooms>=3); }
 function propOpenCounts(id){
   const t=db("tasks",[]).filter(x=>x.property===id&&x.status!=="done").length;
-  const m=db("maintenance",[]).filter(x=>x.property===id&&x.status!=="Done").length;
+  const m=maintLegacy().filter(x=>x.property===id&&x.status!=="Done").length;
   const today=todayAU();
   const s=db("servicing",[]).filter(x=>x.property===id&&x.status!=="Done"&&x.nextDue&&x.nextDue<today).length;
   return {t,m,s,total:t+m+s};
@@ -1679,7 +1675,7 @@ function viewDash(){
   const p12=openTasks.filter(t=>t.priority==="P1"||t.priority==="P2");
   const dueToday=openTasks.filter(t=>t.due===today);
   const overdueTasks=openTasks.filter(t=>t.due&&t.due<today);
-  const maintOpen=db("maintenance",[]).filter(m=>m.status!=="Done");
+  const maintOpen=maintLegacy().filter(m=>m.status!=="Done");
   const needAppr=maintOpen.filter(m=>m.needsApproval);
   const servOverdue=db("servicing",[]).filter(s=>s.status!=="Done"&&s.nextDue&&s.nextDue<today);
   const pestOpen=db("servicing",[]).filter(s=>s.type==="Pest control"&&s.status!=="Done");
@@ -1772,13 +1768,17 @@ function taskStatusSelect(id,cur,cls){ cur=cur||"open";
     +TASK_STATUS.map(([k,l])=>'<option value="'+k+'" '+(cur===k?"selected":"")+'>'+esc(l)+'</option>').join("")+'</select>';
 }
 function setTaskStatus(id,val){ const list=db("tasks",[]); const t=list.find(x=>x.id===id); if(!t)return; t.status=val; t.updated=nowISO(); save("tasks",list); notifyTask("status_changed",t,{to:val}); logAct("edit","tasks",t.title); if(taskDetailOpen!==id) renderPage(currentTab); }
-function taskSetField(id,field,val){ const list=db("tasks",[]); const t=list.find(x=>x.id===id); if(!t)return; t[field]=val; t.updated=nowISO(); save("tasks",list); if(field==="assignee"||field==="due"||field==="priority") notifyTask("updated",t,{field:field,to:val}); if(taskDetailOpen!==id) renderPage(currentTab); }
+function taskSetField(id,field,val){ const list=db("tasks",[]); const t=list.find(x=>x.id===id); if(!t)return; t[field]=val; t.updated=nowISO(); save("tasks",list); if(field==="category"&&taskDetailOpen===id){ try{ renderPage(currentTab); openTask(id); }catch(e){} return; }
+  if(field==="assignee"||field==="due"||field==="priority") notifyTask("updated",t,{field:field,to:val}); if(taskDetailOpen!==id) renderPage(currentTab); }
 
+let taskScope="";
+function taskAddNew(){ openForm("tasks",null,taskScope?{category:taskScope,status:"open",priority:"P3"}:null); }
 let taskФ={status:"open",q:"",assignee:"",prop:"",prio:"",view:"list",group:"status",month:""};
 let taskDetailOpen=null, subDetailOpen=null, subCtx={taskId:null,subId:null}, draggedTask=null;
 
 function taskFilters(list,ignoreStatus){
   let l=list.slice();
+  if(taskScope) l=l.filter(t=>t.category===taskScope);
   if(!ignoreStatus && taskФ.status!=="all") l=l.filter(t=>(t.status||"open")===taskФ.status);
   if(taskФ.assignee) l=l.filter(t=>t.assignee===taskФ.assignee);
   if(taskФ.prop) l=l.filter(t=> taskФ.prop==="__company"?!t.property:t.property===taskФ.prop);
@@ -1789,18 +1789,18 @@ function taskFilters(list,ignoreStatus){
 function taskToolbar(){
   const all=db("tasks",[]);
   const assignees=[...new Set(all.map(t=>t.assignee).filter(Boolean))].sort();
-  const vbtn=(k,l)=>'<button class="segbtn '+(taskФ.view===k?"on":"")+'" onclick="taskФ.view=\''+k+'\';renderPage(\'tasks\')">'+l+'</button>';
-  const propSel='<select class="inp" style="max-width:170px" onchange="taskФ.prop=this.value;renderPage(\'tasks\')"><option value="">All properties</option><option value="__company" '+(taskФ.prop==="__company"?"selected":"")+'>Tropical Stays (company)</option>'+props().map(p=>'<option value="'+p.id+'" '+(taskФ.prop===p.id?"selected":"")+'>'+esc(p.nickname)+'</option>').join("")+'</select>';
-  const asgSel='<select class="inp" style="max-width:150px" onchange="taskФ.assignee=this.value;renderPage(\'tasks\')"><option value="">Everyone</option>'+assignees.map(a=>'<option '+(taskФ.assignee===a?"selected":"")+'>'+esc(a)+'</option>').join("")+'</select>';
-  const prioSel='<select class="inp" style="max-width:110px" onchange="taskФ.prio=this.value;renderPage(\'tasks\')"><option value="">Any priority</option>'+["P1","P2","P3"].map(p=>'<option '+(taskФ.prio===p?"selected":"")+'>'+p+'</option>').join("")+'</select>';
-  const grpSel=taskФ.view==="board"?'<select class="inp" style="max-width:150px" onchange="taskФ.group=this.value;renderPage(\'tasks\')">'+[["status","Group: Status"],["assignee","Group: Assignee"],["property","Group: Property"],["priority","Group: Priority"]].map(([k,l])=>'<option value="'+k+'" '+(taskФ.group===k?"selected":"")+'>'+l+'</option>').join("")+'</select>':"";
-  const statusChips=taskФ.view==="list"?[["open","Not started"],["progress","In progress"],["waiting","Waiting"],["blocked","Blocked"],["done","Completed"],["all","All"]].map(([k,l])=>'<button class="filterbtn '+(taskФ.status===k?"on":"")+'" onclick="taskФ.status=\''+k+'\';renderPage(\'tasks\')">'+l+'</button>').join(""):"";
+  const vbtn=(k,l)=>'<button class="segbtn '+(taskФ.view===k?"on":"")+'" onclick="taskФ.view=\''+k+'\';renderPage(\''+currentTab+'\')">'+l+'</button>';
+  const propSel='<select class="inp" style="max-width:170px" onchange="taskФ.prop=this.value;renderPage(\''+currentTab+'\')"><option value="">All properties</option><option value="__company" '+(taskФ.prop==="__company"?"selected":"")+'>Tropical Stays (company)</option>'+props().map(p=>'<option value="'+p.id+'" '+(taskФ.prop===p.id?"selected":"")+'>'+esc(p.nickname)+'</option>').join("")+'</select>';
+  const asgSel='<select class="inp" style="max-width:150px" onchange="taskФ.assignee=this.value;renderPage(\''+currentTab+'\')"><option value="">Everyone</option>'+assignees.map(a=>'<option '+(taskФ.assignee===a?"selected":"")+'>'+esc(a)+'</option>').join("")+'</select>';
+  const prioSel='<select class="inp" style="max-width:110px" onchange="taskФ.prio=this.value;renderPage(\''+currentTab+'\')"><option value="">Any priority</option>'+["P1","P2","P3"].map(p=>'<option '+(taskФ.prio===p?"selected":"")+'>'+p+'</option>').join("")+'</select>';
+  const grpSel=taskФ.view==="board"?'<select class="inp" style="max-width:150px" onchange="taskФ.group=this.value;renderPage(\''+currentTab+'\')">'+[["status","Group: Status"],["assignee","Group: Assignee"],["property","Group: Property"],["priority","Group: Priority"]].map(([k,l])=>'<option value="'+k+'" '+(taskФ.group===k?"selected":"")+'>'+l+'</option>').join("")+'</select>':"";
+  const statusChips=taskФ.view==="list"?[["open","Not started"],["progress","In progress"],["waiting","Waiting"],["blocked","Blocked"],["done","Completed"],["all","All"]].map(([k,l])=>'<button class="filterbtn '+(taskФ.status===k?"on":"")+'" onclick="taskФ.status=\''+k+'\';renderPage(\''+currentTab+'\')">'+l+'</button>').join(""):"";
   return '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">'
       +'<div class="seg">'+vbtn("list","List")+vbtn("board","Board")+vbtn("calendar","Calendar")+'</div>'
-      +'<input class="inp" style="max-width:180px" placeholder="Search tasks" value="'+esc(taskФ.q)+'" oninput="taskФ.q=this.value;renderPage(\'tasks\')">'
+      +'<input class="inp" style="max-width:180px" placeholder="Search tasks" value="'+esc(taskФ.q)+'" oninput="taskФ.q=this.value;renderPage(\''+currentTab+'\')">'
       +asgSel+propSel+prioSel+grpSel
       +'<button class="btn ghost sm" style="margin-left:auto" onclick="icsAllTasks()" title="Download all dated tasks as a calendar file for Google or Apple Calendar">Sync calendar</button>'
-      +'<button class="btn sm" onclick="openForm(\'tasks\')">Add task</button>'
+      +'<button class="btn sm" onclick="taskAddNew()">'+(taskScope?'Add '+esc(taskScope.toLowerCase())+' task':'Add task')+'</button>'
     +'</div>'
     +(statusChips?'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">'+statusChips+'</div>':"");
 }
@@ -1845,7 +1845,7 @@ function taskCard(t,ctx){
   const today=todayAU(); const od=taskActive(t)&&t.due&&t.due<today; const dt=taskActive(t)&&t.due===today; const sp=subProgress(t);
   return '<div class="tcard" onclick="openTask(\''+t.id+'\')">'
     +'<div style="display:flex;gap:6px;align-items:start"><div class="grow"><b>'+esc(t.title)+'</b></div><span class="chip '+(t.priority==="P1"?"alert":t.priority==="P2"?"warn":"")+'">'+esc(t.priority||"P3")+'</span></div>'
-    +'<div class="tmeta">'+(t.property?'<span class="chip">'+esc(propName(t.property))+'</span>':'<span class="chip sage">Tropical Stays</span>')+(t.assignee?'<span class="chip">'+esc(t.assignee)+'</span>':'')+'</div>'
+    +'<div class="tmeta">'+(t.category&&!taskScope?'<span class="chip sage">'+esc(t.category)+'</span>':'')+(t.property?'<span class="chip">'+esc(propName(t.property))+'</span>':'<span class="chip sage">Tropical Stays</span>')+(t.assignee?'<span class="chip">'+esc(t.assignee)+'</span>':'')+'</div>'
     +(sp.total?'<div class="subprog" title="'+sp.done+' of '+sp.total+' subtasks"><div style="width:'+sp.pct+'%"></div></div><div class="muted mono" style="font-size:10px">'+sp.done+' of '+sp.total+' subtasks</div>':'')
     +'<div style="display:flex;gap:6px;align-items:center;margin-top:7px">'+taskStatusSelect(t.id,t.status)
       +'<span class="mono" style="margin-left:auto;font-size:10px;color:'+(od?"var(--alert)":dt?"var(--warn)":"var(--muted)")+'">'+(t.due?esc(t.due)+(od?" overdue":dt?" today":""):"no date")+'</span></div>'
@@ -1863,7 +1863,7 @@ function taskList(){
   const allOn=ids.length&&ids.every(i=>taskSel[i]);
   const rows=list.map(t=>{ const od=taskActive(t)&&t.due&&t.due<today; const dt=taskActive(t)&&t.due===today; const sp=subProgress(t); const o='onclick="openTask(\''+t.id+'\')"';
     return '<tr class="clickrow"><td onclick="event.stopPropagation()" style="width:26px"><input type="checkbox" '+(taskSel[t.id]?"checked":"")+' onchange="taskSelToggle(\''+t.id+'\',this.checked)"></td>'
-      +'<td '+o+'><b>'+esc(t.title)+'</b>'+(sp.total?' <span class="muted mono" style="font-size:10px">'+sp.done+'/'+sp.total+'</span>':'')+((t.updates&&t.updates.length)?' <span class="chip" style="padding:0 5px">'+t.updates.length+' upd</span>':'')+'</td>'
+      +'<td '+o+'><b>'+esc(t.title)+'</b>'+(t.category&&!taskScope?' <span class="chip sage">'+esc(t.category)+'</span>':'')+(t.needsApproval&&taskActive(t)?' <span class="chip warn">Isabell approval</span>':'')+(sp.total?' <span class="muted mono" style="font-size:10px">'+sp.done+'/'+sp.total+'</span>':'')+((t.updates&&t.updates.length)?' <span class="chip" style="padding:0 5px">'+t.updates.length+' upd</span>':'')+'</td>'
       +'<td '+o+'>'+(t.property?esc(propName(t.property)):'<span class="chip sage">Tropical Stays</span>')+'</td>'
       +'<td '+o+'><span class="chip '+(t.priority==="P1"?"alert":t.priority==="P2"?"warn":"")+'">'+esc(t.priority||"P3")+'</span></td>'
       +'<td '+o+'>'+esc(t.assignee||"-")+(Array.isArray(t.collaborators)&&t.collaborators.length?' <span class="chip" style="padding:0 5px">+'+t.collaborators.length+'</span>':"")+'</td>'
@@ -1901,12 +1901,12 @@ function taskCalendar(){
   }
   const label=first.toLocaleString("en-AU",{month:"long",year:"numeric"});
   return '<div class="card tight" style="padding:12px">'
-    +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><button class="btn ghost sm" onclick="taskMonth(-1)">Prev</button><div style="font-family:var(--disp);font-size:17px;min-width:150px;text-align:center">'+esc(label)+'</div><button class="btn ghost sm" onclick="taskMonth(1)">Next</button><button class="btn ghost sm" onclick="taskФ.month=\'\';renderPage(\'tasks\')">Today</button><span class="muted" style="font-size:11px;margin-left:auto">Drag a task to a day to reschedule</span></div>'
+    +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><button class="btn ghost sm" onclick="taskMonth(-1)">Prev</button><div style="font-family:var(--disp);font-size:17px;min-width:150px;text-align:center">'+esc(label)+'</div><button class="btn ghost sm" onclick="taskMonth(1)">Next</button><button class="btn ghost sm" onclick="taskФ.month=\'\';renderPage(\''+currentTab+'\')">Today</button><span class="muted" style="font-size:11px;margin-left:auto">Drag a task to a day to reschedule</span></div>'
     +'<div class="cal-grid">'+dow+cells+'</div></div>';
 }
-function taskMonth(delta){ const ym=taskФ.month||todayAU().slice(0,7); const d=new Date(ym+"-01T00:00:00"); d.setMonth(d.getMonth()+delta); taskФ.month=d.toISOString().slice(0,7); renderPage("tasks"); }
+function taskMonth(delta){ const ym=taskФ.month||todayAU().slice(0,7); const d=new Date(ym+"-01T00:00:00"); d.setMonth(d.getMonth()+delta); taskФ.month=d.toISOString().slice(0,7); renderPage(currentTab); }
 function taskDragStart(e,id){ draggedTask=id; if(e.dataTransfer){ e.dataTransfer.effectAllowed="move"; try{e.dataTransfer.setData("text/plain",id);}catch(_){} } }
-function taskDrop(e,ymd){ if(e&&e.preventDefault)e.preventDefault(); const id=draggedTask||(e.dataTransfer&&e.dataTransfer.getData("text/plain")); if(!id)return; taskSetField(id,"due",ymd); draggedTask=null; renderPage("tasks"); }
+function taskDrop(e,ymd){ if(e&&e.preventDefault)e.preventDefault(); const id=draggedTask||(e.dataTransfer&&e.dataTransfer.getData("text/plain")); if(!id)return; taskSetField(id,"due",ymd); draggedTask=null; renderPage(currentTab); }
 
 function openTask(id){
   const t=db("tasks",[]).find(x=>x.id===id); if(!t)return; taskDetailOpen=id; subDetailOpen=null;
@@ -1915,6 +1915,7 @@ function openTask(id){
     +'<div class="tdgrid">'
       +'<div class="tdrow"><div class="tdk">Status</div>'+taskStatusSelect(id,t.status,"big")+'</div>'
       +'<div class="tdrow"><div class="tdk">Priority</div><select class="inp" onchange="taskSetField(\''+id+'\',\'priority\',this.value)">'+["P1","P2","P3"].map(p=>'<option '+((t.priority||"P3")===p?"selected":"")+'>'+p+'</option>').join("")+'</select></div>'
+      +'<div class="tdrow"><div class="tdk">Category</div><select class="inp" onchange="taskSetField(\''+id+'\',\'category\',this.value)">'+["","Maintenance","Admin","Guest comms","Owner","Housekeeping","Accounts"].map(c=>'<option value="'+c+'" '+((t.category||"")===c?"selected":"")+'>'+(c||"None")+'</option>').join("")+'</select></div>'
       +'<div class="tdrow"><div class="tdk">Assignee</div><select class="inp" onchange="taskSetField(\''+id+'\',\'assignee\',this.value)">'+contactOptions(t.assignee)+'</select></div>'
       +'<div class="tdrow"><div class="tdk">Property</div><select class="inp" onchange="taskSetField(\''+id+'\',\'property\',this.value)"><option value="">Tropical Stays (company)</option>'+props().map(p=>'<option value="'+p.id+'" '+(t.property===p.id?"selected":"")+'>'+esc(p.nickname)+'</option>').join("")+'</select></div>'
       +'<div class="tdrow"><div class="tdk">Due date</div><input class="inp" type="date" value="'+esc(t.due||"")+'" onchange="taskSetField(\''+id+'\',\'due\',this.value)"></div>'
@@ -2036,24 +2037,37 @@ let maintФ={status:"open",q:"",tab:"jobs"};
 const MAINT_SUBS=[["jobs","Jobs"],["midstay","Mid-stay cleans"],["pest","Pest control"],["ac","AC"],["garden","Landscaping"],["pool","Pool maintenance"]];
 const MAINT_SERVTYPE={pest:"Pest control",ac:"Air-con",garden:"Garden",pool:"Pool"};
 function viewMaint(){
-  const tab=maintФ.tab||"jobs";
-  const tabs='<div class="subtabs">'+MAINT_SUBS.map(([k,l])=>{
-      let n=0;
-      if(k==="jobs") n=db("maintenance",[]).filter(m=>m.status!=="Done").length;
-      else if(k==="midstay") n=db("midstay",[]).filter(m=>m.status!=="Done").length;
-      else n=db("servicing",[]).filter(s=>s.type===MAINT_SERVTYPE[k]&&s.status!=="Done").length;
-      return '<button class="subtab '+(tab===k?"on":"")+'" onclick="maintФ.tab=\''+k+'\';renderPage(\'maint\')">'+esc(l)+(n?' <span class="n">'+n+'</span>':"")+'</button>';
-    }).join("")+'</div>';
-  let body;
-  if(tab==="jobs") body=maintJobs();
-  else if(tab==="midstay") body=maintMidstay();
-  else body=maintServType(tab);
-  return head("Jobs, cleans and recurring servicing","Maintenance",
-      "One-off jobs, mid-stay cleans, and the recurring trades. Anything committing a contractor, a price, or an owner cost gets an approval flag so it does not skip Isabell.")
-    +tabs+body;
+  maintMigrateLegacy();
+  const body= taskФ.view==="board"?taskBoard():taskФ.view==="calendar"?taskCalendar():taskList();
+  return head("Jobs and repairs","Maintenance","Every task tagged Maintenance in Tasks lands here. Anything committing a contractor, a price, or an owner cost gets the Isabell approval flag. Mid-stay cleans and recurring servicing have their own pages.")
+    +taskToolbar()+body;
+}
+/* Legacy "maintenance" jobs move into Tasks (category Maintenance) once. The old store is left untouched as a backup. */
+function maintMigrateLegacy(){
+  const legacy=db("maintenance",null); if(!Array.isArray(legacy)) return;
+  const st=db("settings",{}); if(st.maintToTasks) return;
+  const tasks=db("tasks",[]); const have=new Set(tasks.map(t=>t.id));
+  const smap={"Done":"done","In progress":"progress","Quoted":"waiting","Scheduled":"waiting","Reported":"open"};
+  let n=0;
+  legacy.forEach(m=>{ if(!m||have.has(m.id)) return;
+    const extra=[m.trade?"Trade: "+m.trade:"",m.contractor?"Contractor: "+m.contractor:"",m.cost?"Est. cost: "+m.cost:""].filter(Boolean).join(". ");
+    tasks.push({id:m.id,title:m.issue||"Maintenance job",property:m.property||"",category:"Maintenance",priority:m.priority||"P3",
+      status:smap[m.status]||"open",due:m.due||"",assignee:"",notes:[extra,m.notes||""].filter(Boolean).join("\n"),
+      trade:m.trade||"",contractor:m.contractor||"",cost:m.cost||"",needsApproval:!!m.needsApproval,attach:m.attach,
+      created:m.created||nowISO(),updated:nowISO()}); n++; });
+  if(n) save("tasks",tasks);
+  st.maintToTasks=nowISO(); save("settings",st);
+  if(n) toast(n+(n===1?" maintenance job":" maintenance jobs")+" moved into Tasks.");
+}
+/* Maintenance-tagged tasks in the old job shape, for the dashboard, property pages, contacts and badges. */
+function maintLegacy(){
+  const lbl={}; TASK_STATUS.forEach(([k,l])=>lbl[k]=l);
+  return db("tasks",[]).filter(t=>t.category==="Maintenance").map(t=>({id:t.id,issue:t.title,property:t.property,trade:t.trade||"",
+    priority:t.priority||"P3",status:(t.status==="done"||t.status==="cancelled")?"Done":(lbl[t.status||"open"]||"Not started"),
+    due:t.due||"",contractor:t.contractor||t.assignee||"",cost:t.cost||"",needsApproval:!!t.needsApproval,notes:t.notes||""}));
 }
 function maintJobs(){
-  const all=db("maintenance",[]);
+  const all=maintLegacy();
   const open=all.filter(m=>m.status!=="Done");
   const rows=all.filter(m=>{
       if(maintФ.status==="open"&&m.status==="Done")return false;
@@ -2340,7 +2354,7 @@ function bulkApply(){
 function openContact(id){
   const c=db("contacts",[]).find(x=>x.id===id); if(!c)return;
   const tks=db("tasks",[]).filter(t=>t.assignee===c.name);
-  const mnt=db("maintenance",[]).filter(m=>m.contractor===c.name);
+  const mnt=maintLegacy().filter(m=>m.contractor===c.name);
   const cf=getCustomFields("contacts"); const cv=c.custom||{};
   const body='<dl class="pdetail">'
     +(c.role?'<dt>Role</dt><dd>'+esc(c.role)+'</dd>':'')
@@ -2411,7 +2425,7 @@ function openProp(id){
   const p=propById(id); if(!p)return;
   const oc=propOpenCounts(id); const today=todayAU();
   const tks=db("tasks",[]).filter(t=>t.property===id&&t.status!=="done");
-  const mnt=db("maintenance",[]).filter(m=>m.property===id&&m.status!=="Done");
+  const mnt=maintLegacy().filter(m=>m.property===id&&m.status!=="Done");
   const srv=db("servicing",[]).filter(s=>s.property===id);
   const opsField=(l,v,ph)=>'<dt>'+l+'</dt><dd>'+(v&&String(v).toLowerCase()!=="not defined"?esc(v):'<span class="muted">'+esc(ph)+'</span>')+'</dd>';
   const linked=(arr,fmt)=>arr.length?arr.map(fmt).join(""):'<div class="muted" style="font-size:12px;padding:4px 0">none open</div>';
@@ -2802,77 +2816,6 @@ function genericList(store,title,eyebrow,sub,cols){
 }
 
 /* ============================================================
-   ADMIN TASKS  (seeded from Task Catch-up sheet, tab "Today 28 Oct")
-   Store: adminTasks. Filters are DOM-only so typing never loses focus.
-   ============================================================ */
-const ADMIN_SEED=[{"done": false, "source": "Isabell meeting 27 Oct", "title": "Jacqui Payne (email, CC Isabell): broken lamps, buy or we buy, quick reply", "property": "5 Planchonella", "notes": "Replaces the 26 Oct lamp draft. Attach the lamp photos. Shield claim due 3 Nov.", "draft": "Subject: 5 Planchonella - Broken lamps\n\nHi Jacqui,\n\nI hope you are well. During a recent stay, two of the lamps at the property were broken (photos attached).\n\nWe'd like to get these replaced and claim the cost back for you. Would you prefer to choose and buy the replacements yourself? If so, please send us the invoice and we'll lodge the claim. Alternatively, Isabell is happy to pick up replacements from a local shop, but we know you have a particular style for the house, so we wanted to check with you first.\n\nAs the claim needs to be submitted by 3 November, we'd really appreciate hearing back from you as soon as you can.\n\nKind regards,\nMarlon\nTropical Stays Cairns", "context": "Isabell: 'ask Jackie if she likes to purchase some, send us the invoice and we claim it and give her the deadline... Alternatively, I can purchase something here in a local shop... we have two lamps which need replace... Send [the pictures] as well.'", "batch": "Today 28 Oct"}, {"done": false, "source": "Isabell meeting 27 Oct", "title": "Shield: lodge 5 Planchonella lamps claim (HM8MSWMPH9)", "property": "5 Planchonella", "notes": "Deadline 3 Nov. Needs Jacqui's invoice or Isabell's receipt first. Lodge with whatever you have by 2 Nov if nothing comes back.", "draft": "", "context": "Guest Lareesa Garciano, 11 to 20 Oct. Only claim still going to Shield (817 and Charles St fixed).", "batch": "Today 28 Oct"}, {"done": false, "source": "Isabell meeting 27 Oct + Eva email 23 Oct", "title": "Eva (email, Reply All): update the 26 Oct draft with meeting answers", "property": "Various", "notes": "Isabell said she'd also reply to Eva. Check her email first so you don't double up. Use only the lines she hasn't covered.", "draft": "Updated lines for the Eva draft:\n\n- Wood Mike: paid in full via OTA Plus, $2,135.03.\n- Glenn Overman: paid via Payments by Booking.com. Booking.com was holding the payout until our bank details were added, which is now done, so the funds should come through shortly.\n- Katharine Pennell: the $500 cat security deposit has been refunded in full.\n- GST: Isa has sent through the ATO link. As holiday apartments, we are not liable for GST on the rental income.", "context": "Isabell: Mike Wood 'paid in full... in OTA Plus'. Glenn Overman: 'payments by booking dot com... the money is in booking.com, we need the bank account.' Isabell: 'I will say to Eva in the email has been paid via booking.com.' Cat deposit refunded on the call.", "batch": "Today 28 Oct"}, {"done": false, "source": "Isabell meeting 27 Oct", "title": "Isabell (WhatsApp): forward the GST reply to Eva for the internal notes", "property": "All", "notes": "Save her reply and the ATO link in the Policies tab once received.", "draft": "Hi Isabell, when you get a sec, please forward me the GST reply you sent Eva with the ATO link, so I can add it to our internal notes. Thank you!", "context": "Isabell: 'I just forward you what I did and then you can basically copy that on your internal notes.'", "batch": "Today 28 Oct"}, {"done": false, "source": "Isabell meeting 27 Oct", "title": "Isabell (WhatsApp): mid-stay custom field wording, updated with day 7 rule", "property": "All listings", "notes": "Fee per listing tier ($139 / $159 / $189 / $229 / $299). Get her OK before rolling out.", "draft": "Hi Isabell, here's the updated mid-stay wording with what we agreed yesterday:\n\nCustom field 'midstay':\nFor stays of 14 nights or more, a mid-stay clean and linen change is mandatory to keep the property well presented. The fee for this property is $[fee] per clean. Our team will schedule it for halfway through your stay and let you know the date. If it doesn't suit, just let us know and we'll find another time.\n\nOK to roll this out?", "context": "Isabell: 'once you book for 14 days... the clean should happen on day seven.' 'get in touch with them and say, hey, mid stay clean is scheduled for this day... If they should say it doesn't work for me, then we can worry about it and reschedule.'", "batch": "Today 28 Oct"}, {"done": false, "source": "Isabell meeting 27 Oct", "title": "Mid-stay scheduling message template (Guesty saved reply)", "property": "All listings", "notes": "Use for every 14+ night booking. Send at least 2 days before day 7.", "draft": "Hi [Guest name],\n\nWe hope you're enjoying your stay! As your booking is 14 nights or more, a mid-stay clean and linen change is included as part of your stay ($[fee]).\n\nWe've scheduled it for [day, date] at [time]. Please let us know if that doesn't suit and we'll find another time.\n\nMany thanks,\nYour hosts at Tropical Stays Cairns", "context": "Agreed on the call: day 7 of a 14-night stay, we set the date, reschedule only if the guest asks.", "batch": "Today 28 Oct"}, {"done": false, "source": "Isabell meeting 27 Oct", "title": "Booking.com: set payout timing to daily (24 hrs after checkout) per property + check GST/ABN", "property": "All Booking.com listings", "notes": "Group homepage (primary account) > Finance > Bank details. Payout schedule has to be changed property by property. 137 still shows the old sole trader ABN. 8 on Payments by Booking.com, 49 eligible.", "draft": "", "context": "Isabell: 'I would like to have every 24 hours payments please... we have to update our ABN. I can see for 137 it's the old ABN.'", "batch": "Today 28 Oct"}, {"done": false, "source": "Isabell meeting 27 Oct", "title": "Booking.com: confirm the 5 listing closures went through", "property": "The Nest, Treehouse, Loft Garden Townhouse, Mountain Panorama, Bliss 9 Pools", "notes": "Loft Garden Townhouse was yours to close on the call. Booking.com says up to 14 days. Check by 11 Nov.", "draft": "", "context": "Path: property > Messages > Contact options > Terminate contract > closing permanently.", "batch": "Today 28 Oct"}, {"done": false, "source": "Isabell meeting 27 Oct", "title": "Booking.com: close Tropical Gardens after the management agreement ends", "property": "Tropical Gardens", "notes": "Not before 9 Nov.", "draft": "", "context": "Isabell: 'I leave it on here until the management agreement ends. And that's on the 9th of November.'", "batch": "Today 28 Oct"}, {"done": false, "source": "Isabell meeting 27 Oct", "title": "Booking.com partner support (extranet message): one-star review removal follow-up", "property": "Listing TBC", "notes": "Fill the property, guest and date from the extranet.", "draft": "Hi Booking.com team,\n\nWe're following up on our request to remove the one-star review left for [property] by [guest name] on [date]. We uploaded the police report and supporting evidence on [date] and haven't heard back since.\n\nPlease let us know the status and whether you need anything further from us.\n\nKind regards,\nMarlon\nTropical Stays Cairns", "context": "Isabell: 'I want them to get rid of the review... Did you hear anything back?' You: 'No, they just accepted it.'", "batch": "Today 28 Oct"}, {"done": false, "source": "Isabell meeting 27 Oct", "title": "Sonia Nolan, VRBO (email, reply to Isabell's intro)", "property": "All VRBO listings", "notes": "Reply All to Isabell's intro email.", "draft": "Hi Sonia,\n\nThanks Isabell for the introduction, and lovely to e-meet you, Sonia!\n\nI'm the Operations Manager at Tropical Stays Cairns and look after our channel listings day to day. We'd love any suggestions on how we can improve our listings and performance on Vrbo. If it's easier, I'm happy to jump on a quick call at a time that suits you.\n\nKind regards,\nMarlon\nTropical Stays Cairns", "context": "Isabell's intro: 'Please allow me to introduce you to Marlon... Please let us know how we can improve our listings further.'", "batch": "Today 28 Oct"}, {"done": false, "source": "Isabell meeting 27 Oct", "title": "Shared drive: create 'Channels' folder, one subfolder per channel", "property": "All", "notes": "Save the Home and Villas signup spreadsheet there when Isabell forwards it. Add Booking.com (Ankita), VRBO (Sonia) contacts.", "draft": "", "context": "Isabell: 'make a folder for us on our shared drive and call it channels and then add for each channel a folder.'", "batch": "Today 28 Oct"}, {"done": false, "source": "Isabell meeting 27 Oct", "title": "Isabell (WhatsApp): Home and Villas spreadsheet + my access", "property": "All Home and Villas listings", "notes": "She emailed Home and Villas asking to restore her access and create an account for you.", "draft": "Hi Isabell, when you get a chance, please forward me the Home and Villas signup spreadsheet so I can save it in the new Channels folder. Also let me know once they've set up my account. Thank you!", "context": "Isabell: 'I am going to forward you the spreadsheet I had received in the beginning when I signed up with them.'", "batch": "Today 28 Oct"}, {"done": false, "source": "Isabell meeting 27 Oct", "title": "Airbnb House Rules audit: reword checkout tasks as polite requests", "property": "All Airbnb listings", "notes": "Due before 20 Nov. Never 'must' or 'house rule' for checkout chores.", "draft": "Example wording:\nBefore you leave, it would really mean a lot to us if you could start the dishwasher and pop the rubbish in the outside bins. Thank you so much!", "context": "Isabell (Airbnb support): 'we can't say you must or this is a house rule... it would really mean a lot to us if you could turn the dishwasher on and bring the bin bags out.'", "batch": "Today 28 Oct"}, {"done": false, "source": "Isabell meeting 27 Oct", "title": "Security deposits: add to Policies tab", "property": "All", "notes": "Use Guesty 'add security deposit' (hold), never charge it. Charging costs us Stripe fees.", "draft": "Policy line:\nSecurity and pet deposits are placed as a hold using 'Add security deposit' in Guesty, never charged. Charging and refunding a deposit costs Stripe fees on both sides.", "context": "Cat deposit ($500) was charged with the pet fee, refunded on the call. Isabell: 'security deposit do not charge. Basically put the money on hold... otherwise it pays Stripe fees.'", "batch": "Today 28 Oct"}, {"done": false, "source": "Isabell meeting 27 Oct", "title": "Stripe fees: prep options for next meeting", "property": "VIO + direct bookings", "notes": "Not urgent. List where we pay Stripe fees and options to build them into upsell prices and markups.", "draft": "", "context": "Isabell: 'we have to have a proper brainstorming how we hide those fees in our upsells, in our markups... I probably mark up our website bookings higher.'", "batch": "Today 28 Oct"}, {"done": false, "source": "Isabell meeting 27 Oct", "title": "Julie (WhatsApp): 11/21 Digger, no extra cleaning fee", "property": "11/21 Digger", "notes": "Closes the 26 Oct Tyreece fee draft. Don't send it.", "draft": "Hi Julie, quick update on 11/21 Digger: Isabell spoke with Alicia, and as the guests helped with the clean, we won't be charging an extra cleaning fee. Thank you!", "context": "Isabell: 'two girls came and helped cleaning... Alicia... said I don't want to have any extra money for that.'", "batch": "Today 28 Oct"}, {"done": false, "source": "Isabell meeting 27 Oct", "title": "Isabell (WhatsApp): confirm SuiteOp meeting today + weekly call slot", "property": "All", "notes": "Weekly call to be when Harold is on shift.", "draft": "Hi Isabell, are you joining the SuiteOp meeting today? If not, anything you want me to raise?\n\nAlso, for our weekly call, would [day] at [time] work? That's when Harold is on, so I can step away from the messages.", "context": "Isabell: 'it would make sense to do the meetings when Harold is working.' Wednesday meeting invite sent to both.", "batch": "Today 28 Oct"}, {"done": false, "source": "Isabell meeting 27 Oct", "title": "SuiteOp meeting: questions to push", "property": "All", "notes": "Your view on the call: no improvement for housekeeping or task management. Isabell: 'I think we will switch to Breezeway.'", "draft": "Questions for SuiteOp:\n1. What has changed for housekeeping task assignment and completion since our last call? Please show us live.\n2. How do recurring tasks (pest, pool, smoke alarms, air-con) work across 60+ properties?\n3. What's on your roadmap for the next 3 months, with dates?\n4. What would it take to migrate our existing tasks and schedules if we stay?", "context": "Isabell: 'Why would we wait any longer to switch to something which works?'", "batch": "Today 28 Oct"}, {"done": false, "source": "Isabell meeting 27 Oct", "title": "Guesty to-do: cross off ABN and phone number update", "property": "All", "notes": "Done by Isabell on 26 Oct.", "draft": "", "context": "Isabell: 'I updated those details on Guesty yesterday... the phone number has been changed... In case you had this on the to-do list, you can cross that out.'", "batch": "Today 28 Oct"}, {"done": false, "source": "Isabell meeting 27 Oct", "title": "Minutes: send the 27 Oct minutes to Isabell", "property": "All", "notes": "Doc: Isabell x Marlon Weekly Ops Catch-up 27 Oct 2026 - v1. Fix the 'Breezeway call' line if Wednesday's meeting is SuiteOp.", "draft": "Hi Isabell, here are the minutes from yesterday's call, with the action items at the end: [link]. Let me know if I missed anything. Thank you!", "context": "", "batch": "Today 28 Oct"}, {"done": true, "source": "SuiteOp meeting 28 Oct", "title": "Leanne, 10 Retreat owner (email, CC Isabell): gardener 4 Nov, bin, chair", "property": "10 Retreat Close PC", "notes": "URGENT. Attach the 6 photos (chair and footstool x2, pedal bin, trees on roof x2, bare patch by pebbles). Owner spend, so a courtesy message is required. CC Isabell.", "draft": "Subject: 10 Retreat Close: garden work, bin and chair\n\nHi Leanne,\n\nI hope you're well! A few quick updates on 10 Retreat Close, with photos attached.\n\nGarden: Our gardener will be doing some extra work on Wednesday 4 November, between guest stays. He'll cut back the taller trees beside the house, which are touching the roof and gutters again, and refill the pebbles next to the house around the pool equipment and the BBQ area, where the ground has worn bare. We'll send before and after photos once it's done.\n\nBin: The kitchen bin is past its best, so our team will pick up a new, larger one from Kmart.\n\nChair and footstool: The faux leather on the chair and its matching footstool has started to peel and crack. It may be time to look at replacing them. Would you like us to go ahead, and if so, do you have a budget in mind?\n\nLet me know if you have any questions at all.\n\nKind regards,\nMarlon\nTropical Stays Cairns", "context": "Isabell: 'message 10 retreat close owner and just give them a heads up that the gardener will do some more work... cutting the higher trees next to the house which are touching the roof again... refill the pebbles.' 'Gardener... over the fourth... guest free.' 'We need to replace the bin for retreat close.' 'show her the chair... ask her if she wants to go ahead and if she has a budget.'", "batch": "Today 28 Oct"}, {"done": false, "source": "SuiteOp meeting 28 Oct + Julie video 28 Oct", "title": "57B Terebra owner (email, CC Isabell): kitchen sink leak + tobacco odour", "property": "57B Terebra (The Nook)", "notes": "Send after Josh replies; add 'on [date]' if he gives one. Attach Julie's video (28 Oct 10:25am). Fill in the owner name.", "draft": "Subject: 57B Terebra: kitchen sink leak and odour\n\nHi [Owner name],\n\nI hope you're well! Just a quick heads-up on the property.\n\nOur housekeeping team found a leak under the kitchen sink, which gets quite heavy when the tap is running (video attached). We've arranged for our plumber, Josh from Westburry Plumbing, to come and fix it, and we'll let you know once it's done.\n\nAfter the last guests checked out, Julie also noticed a strong tobacco smell through the house. She's treating it with odour bombs and will check again afterwards to make sure it's cleared before the next guests arrive.\n\nIf you have any questions in the meantime, just let me know.\n\nKind regards,\nMarlon\nTropical Stays Cairns", "context": "Julie 28 Oct: 'Please arrange Josh the plumber to attend 57B Terebra, under the kitchen sink has a leak as per video.' Meeting: 'quite severe leak when you turn the tap on.' Mgmt 27 Oct: pipe tobacco smell, odour bombs.", "batch": "Today 28 Oct"}, {"done": false, "source": "Julie 28 Oct + video", "title": "Josh (SMS via Aircall): book 57B Terebra kitchen sink leak", "property": "57B Terebra (The Nook)", "notes": "SEND FIRST. Separate from 14B Abbott. Pull 57B access details from Guesty or SuiteOp. Check 57B's next check-in date.", "draft": "Hi Josh, Marlon from Tropical Stays. Another one for you: there's a leak under the kitchen sink at 57B Terebra, Palm Cove. It's quite a heavy leak when the tap is running. Can you let me know when you can attend? I'll send the access details and the video through. If you send me your email, I'll email the video, as I can't attach it here. Thanks!", "context": "Julie 28 Oct: 'Please arrange Josh the plumber to attend 57B Terebra.' Video: 14 sec, inside the under-sink cupboard.", "batch": "Today 28 Oct"}, {"done": false, "source": "SuiteOp meeting 28 Oct", "title": "Guesty: note 'no early check-in' on the 4 Nov booking", "property": "10 Retreat Close PC", "notes": "Gardener is on site 4 Nov.", "draft": "", "context": "Julie: 'Marlon, can you make a note of no early check in on that one, please?'", "batch": "Today 28 Oct"}, {"done": false, "source": "SuiteOp meeting 28 Oct", "title": "Sally (Airbnb): Isabell is coming by with coffee pods", "property": "1102 Cairns One", "notes": "Isabell is going herself. Confirm her time before sending. Combine with the plumber visit (1:30 to 2:30) if not already sent.", "draft": "Hi Sally,\n\nIsabell will pop by today to check the coffee machine and will bring some pods with her. [She'll be there around ___.] Please let us know if that time doesn't suit.\n\nMany thanks,\nYour hosts at Tropical Stays Cairns", "context": "Isabell: 'Let this lady Sally know I'm going over there and just take a few coffee pods with us.'", "batch": "Today 28 Oct"}, {"done": false, "source": "SuiteOp meeting 28 Oct", "title": "SuiteOp: review and approve the X-ray elements for all properties", "property": "All", "notes": "Simon: 'spend some time going through the X-ray and approve them today.' Julie says the X-ray isn't showing for all properties, so check later today and rerun if needed.", "draft": "", "context": "Julie: 'Can you also run an X-ray on all the properties, please, so that I can have the pictures ready?' Isabell: 'maybe check later today, Marlon, if it has worked.'", "batch": "Today 28 Oct"}, {"done": false, "source": "SuiteOp meeting 28 Oct", "title": "SuiteOp: enable 'Manage own availability' for every team member", "property": "All", "notes": "Team member > Permissions > bottom > Manage own availability. Lets staff set days off in the app.", "draft": "", "context": "Isabell: 'Hey Marlon, can you do this with the time off? Can you click this on for everyone?'", "batch": "Today 28 Oct"}, {"done": false, "source": "SuiteOp meeting 28 Oct", "title": "SuiteOp group (WhatsApp): reminders for Simon", "property": "All", "notes": "Isabell asked you to post a screenshot as a reminder for Simon to add the date. Attach her screenshot.", "draft": "Hi Simon, a couple of reminders from today's session:\n1. Please add the date (screenshot attached).\n2. Please add an 'Invoicing' saved view, next to the maintenance and cleaning views.\n3. Maria didn't get her invite. Please resend.\nThanks, and talk next week!", "context": "Isabell: 'take a screenshot and put it in our group as a reminder for Simon to add the date, because there is no date.' Julie: 'can you add to that shortcut the invoicing one?' Isabell: 'she said she didn't get the invite.'", "batch": "Today 28 Oct"}, {"done": false, "source": "SuiteOp meeting 28 Oct", "title": "Julie (WhatsApp): housekeeper pay for mid-stay cleans", "property": "All", "notes": "Rule from Isabell: guest fee minus consumables. 1-bed minus $10, 2-bed minus $15, 3+ bed minus $20. Only the 1-bed figure was confirmed on the call ($139 to $129). Fill the others from the fee tiers.", "draft": "Hi Julie, here's the housekeeping rate for mid-stay cleans (guest fee minus consumables):\n\n1-bedroom: $139 guest fee, $129 to housekeeping\n2-bedroom: $[fee] guest fee, $[fee minus 15] to housekeeping\n3+ bedrooms: $[fee] guest fee, $[fee minus 20] to housekeeping\n\nThank you!", "context": "Isabell: '1 bedder minus 10, 2 bedder minus 15 and everything more than 2 bedder 20.' Julie: 'Marlon, if you just give me a list what housekeeping gets.'", "batch": "Today 28 Oct"}, {"done": false, "source": "SuiteOp meeting 28 Oct", "title": "Key tags: new labels (Guest key 1 of 2, 2 of 2) for all properties", "property": "All", "notes": "Print the labels for Julie (she has no printer). She'll add a photo per property and update Guesty as she goes. Not urgent, roll out while it's quiet.", "draft": "", "context": "Isabell: 'Key tag, label update. Put it on the to do list.' Julie: 'it'll take one of one, guest one of two, guest two of two... if you wanted to even do the printouts.'", "batch": "Today 28 Oct"}, {"done": false, "source": "SuiteOp meeting 28 Oct", "title": "Policies tab: owner courtesy message rule", "property": "All", "notes": "Add as a standing rule.", "draft": "Any time we spend an owner's money, even on something small, send the owner a courtesy message before or at the time of the job, and CC Isabell. Owners see the cost on their statement, so they should never be surprised by it.", "context": "Isabell: 'anytime you spend money from the owner, you give them a courtesy message... it wouldn't hurt to CC me.'", "batch": "Today 28 Oct"}, {"done": false, "source": "SuiteOp meeting 28 Oct", "title": "Council (call 1300 69 22 47): 11 Planchonella bin, get the reference number", "property": "11 Planchonella", "notes": "Isabell asked again on the call. Script is in the 26 Oct tab.", "draft": "", "context": "Isabell: 'call them and ask them what's going on... it's clearly broken.'", "batch": "Today 28 Oct"}, {"done": false, "source": "SuiteOp meeting 28 Oct", "title": "SuiteOp: invoicing department, tag invoiceable tasks", "property": "All", "notes": "Julie and Maria will add invoiceable tasks under the Invoicing department. Isabell invoices weekly from that view.", "draft": "", "context": "Isabell: 'I just do it once a week and smash the invoices out.'", "batch": "Today 28 Oct"}, {"done": false, "source": "SuiteOp meeting 28 Oct", "title": "SuiteOp optimisation call next week: upsells and experiences", "property": "All", "notes": "Simon is moving the meeting to the same time next week. Experiences have made $0 so far.", "draft": "", "context": "Isabell: 'We did not make a cent from this so far.' Isabell: 'we give it a fair go... until end of January and see how we go.'", "batch": "Today 28 Oct"}, {"done": false, "source": "SuiteOp meeting 28 Oct", "title": "Minutes fix: Wednesday meeting was SuiteOp, not Breezeway", "property": "All", "notes": "Update section 06 and action 23 in the 27 Oct minutes doc.", "draft": "", "context": "28 Oct meeting was with SuiteOp (Simon). Isabell: give SuiteOp a fair go until end of January.", "batch": "Today 28 Oct"}, {"done": false, "source": "Julie WhatsApp 27 Oct", "title": "Julie (WhatsApp): Charles St saucepan IS a claim, get cost and receipt", "property": "30A Charles St", "notes": "Reverses the 'fixed' assumption. Shield claim HM3Z3NBRDN (Sam Trodd, 18 to 23 Oct) is due 6 Nov. Keep the tracker row Open.", "draft": "Hi Julie, thanks! For the Charles Street saucepan claim, can you send me the cost and receipt for the replacement once you have it? The Shield claim needs to go in by 6 November. Thank you!", "context": "Julie 27 Oct 11:53am: '817 - all sorted. Charles Street - I think is a claim.'", "batch": "Today 28 Oct"}, {"done": false, "source": "Julie WhatsApp 22 and 27 Oct", "title": "817 owner email: update the frypan line before sending", "property": "817 Cairns One", "notes": "Julie said she'd 'just get a normal one' instead of the green Tefal, then 'all sorted'. Ask Julie whether she bought a new pan (owner spend, so mention it) or the old ones were saved.", "draft": "Option A (Julie bought a replacement):\nFrypans: A guest damaged one of the frypans during their stay, so our team has replaced it with a new one.\n\nOption B (saved, nothing bought):\nFrypans: A guest damaged the frypans during their stay, but our team was able to restore them, so no replacement was needed.", "context": "Julie 22 Oct: 'We were going to ask owner where they purchased the green ones but I'll just get a normal one.' 27 Oct: '817 - all sorted.'", "batch": "Today 28 Oct"}, {"done": false, "source": "Julie WhatsApp 28 Oct", "title": "34 Turner St: 12pm check-in pending Julie's quality check", "property": "34 Turner St", "notes": "Julie needs an hour to get into the city after the meeting. Don't confirm 12pm to the guest until she advises.", "draft": "Guest holding reply:\nHi [Guest name], thanks for your patience! Our team is doing a final check on the property now, and we'll message you as soon as it's ready. Check-in is from 3:00 PM at the latest.\n\nMany thanks,\nYour hosts at Tropical Stays Cairns", "context": "Julie 28 Oct 5:56am: 'I need to complete a quality check after our meeting. And it takes me an hour to get into city. Let's just say we will advise.'", "batch": "Today 28 Oct"}, {"done": false, "source": "Julie WhatsApp 28 Oct", "title": "Julie (WhatsApp): 57B Terebra photos, linen costs, odour update", "property": "57B Terebra (The Nook)", "notes": "Leak video received 28 Oct. Get photos before the odour bombs and washing remove the evidence.", "draft": "Thanks Julie! Can you take a few photos of the bits on the bed and the linen you're replacing, and let me know the cost of the 2 mattress protectors and the pillow protector? Isabell may want to raise it with the guest or claim it. Let me know how it smells after the odour bombs. Thank you!", "context": "You 28 Oct: 'can you send me the video in Terebra when you have time for me to forward to the owner?'", "batch": "Today 28 Oct"}, {"done": false, "source": "Mgmt chat 27 Oct", "title": "Isabell (WhatsApp): smoking or replacement charge for the previous 57B guest?", "property": "57B Terebra (The Nook)", "notes": "Her call. Shield window is 14 days from checkout (around 27 Oct, so roughly 10 Nov; confirm the date in Guesty). Don't check in the next guest until Julie confirms the smell is gone.", "draft": "Hi Isabell, update on 57B Terebra (The Nook): Julie found a strong pipe tobacco smell through the house after the last guests left. They'd left all the fans on high, and there were a few bits on one bed. She's setting off two odour bombs today and replacing 2 mattress protectors and a pillow protector. Do you want me to raise a smoking or replacement charge with the guest, or claim it through Shield? I'm getting photos and costs from Julie either way.", "context": "Julie 27 Oct 2:58pm: 'The Nook 57B Terebra. Smells strongly of pipe tobacco all through the house. I haven't found evidence only a few bits on one of the beds. They left it quite clean and all fans on high (probably to mask the smell). I will let two odour bombs off tomorrow.'", "batch": "Today 28 Oct"}, {"done": false, "source": "Mgmt chat 28 Oct", "title": "Isabell's 6 images (8:51am): check what she needs from you", "property": "Various", "notes": "She tagged you: '@Marlon see above'. Images aren't in the export. Likely linked to her consumables-to-invoice question.", "draft": "", "context": "Isabell 8:07am: 'Could you please remind me of consumables to invoice.' 8:51am: 6 images. 9:19am: '@Marlon see above.'", "batch": "Today 28 Oct"}, {"done": false, "source": "Mgmt chat 27 Oct", "title": "Isabell's guest communication structure: apply to drafts", "property": "All", "notes": "She shared it as an image (not in the export). Save it to the Policies tab and use it for guest messages. Her follow-up: always give guests a timeframe.", "draft": "", "context": "Isabell 27 Oct 7:58am: '@Marlon - guest communication structure' + image. 'Suggest giving guests a timeframe.' 'That's important for the guests to know.'", "batch": "Today 28 Oct"}, {"done": false, "source": "Mgmt chat 27 Oct", "title": "Remotes for The Edge and Onyx: batteries to change", "property": "The Edge, 3 Onyx", "notes": "Julie dropped the remotes off and will return Onyx's once the batteries are changed. Confirm who's changing them (you, Isabell or the office) and tell Julie when they're done.", "draft": "Hi Julie, thanks for the remotes. I'll let you know as soon as the batteries are changed so you can return the Onyx one.", "context": "Julie 27 Oct 11:10am: 'Remotes, The Edge, Onyx. Please advise once batteries changed and I will return Onyx remote.'", "batch": "Today 28 Oct"}, {"done": false, "source": "Mgmt chat 26 Oct", "title": "FYI for Thursday meeting: extra cleaning team from 2 Nov + 7 and 8 Nov roster", "property": "All", "notes": "Isabell wants at least one more team or person on the books from 2 Nov. Julie thinks it's not needed in the quiet season. Pauline is backup but not available 7 and 8 Nov. To be discussed Thursday.", "draft": "", "context": "Isabell 26 Oct: 'I like to see at least one additional team/person on the books from the 2nd of November.' 'Who is working on the 7th and 8th of November pls?'", "batch": "Today 28 Oct"}];
-function adminAll(){
-  let l=db("adminTasks",null);
-  if(l===null){ l=ADMIN_SEED.map(r=>{ const o=Object.assign({id:uid("adm"),created:nowISO(),updated:nowISO()},r); o.status=r.done?"done":"open"; delete o.done; return o; }); save("adminTasks",l); }
-  return l;
-}
-let adminView="open";
-function viewAdmin(){
-  const all=adminAll();
-  const open=all.filter(x=>x.status!=="done").length, done=all.length-open, drafts=all.filter(x=>x.status!=="done"&&x.draft).length;
-  const srcs=[...new Set(all.map(x=>x.source).filter(Boolean))];
-  const rows=all.map(r=>{
-    const isDone=r.status==="done";
-    const txt=[r.title,r.property,r.source,r.notes,r.draft,r.context].join(" ").toLowerCase();
-    return '<tr data-adm="1" data-st="'+(isDone?"done":"open")+'" data-src="'+esc(r.source||"")+'" data-txt="'+esc(txt)+'"'+(isDone?' style="opacity:.55"':'')+'>'
-      +'<td style="width:28px"><input type="checkbox" '+(isDone?"checked":"")+' onclick="adminToggle(\''+r.id+'\')" title="Mark done"></td>'
-      +'<td><div style="font-weight:600'+(isDone?';text-decoration:line-through':'')+'">'+esc(r.title||"-")+'</div>'
-        +(r.notes?'<div style="font-size:11.5px;color:var(--ink2);margin-top:3px;white-space:pre-wrap">'+esc(r.notes)+'</div>':'')+'</td>'
-      +'<td>'+esc(r.property||"-")+'</td>'
-      +'<td><span class="tag">'+esc(r.source||"-")+'</span>'+(r.due?'<div style="font-size:11px;margin-top:4px">Due '+esc(r.due)+'</div>':'')+'</td>'
-      +'<td class="rowact" style="white-space:nowrap">'
-        +((r.draft||r.context)?'<button class="btn sm" onclick="adminOpen(\''+r.id+'\')">'+(r.draft?'Draft':'Context')+'</button> ':'')
-        +'<button class="btn ghost sm" onclick="openForm(\'adminTasks\',\''+r.id+'\')">Edit</button> '
-        +'<button class="btn ghost sm" onclick="delRow(\'adminTasks\',\''+r.id+'\')">Del</button></td></tr>';
-  }).join("");
-  setTimeout(adminFilter,0);
-  return head("Admin","Admin tasks","Owner emails, channel admin, policies and follow-ups from meetings and chats. Tick to close. Anything that commits a price, refund or owner spend still needs Isabell.")
-    +'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">'
-      +'<span class="pill info">'+open+' open</span><span class="pill warn">'+drafts+' drafts ready</span><span class="pill ok">'+done+' done</span></div>'
-    +'<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">'
-      +'<div class="seg">'+[["open","Open"],["done","Done"],["all","All"]].map(v=>'<button class="segbtn'+(adminView===v[0]?' on':'')+'" onclick="adminView=\''+v[0]+'\';renderPage(\'admin\')">'+v[1]+'</button>').join("")+'</div>'
-      +'<select class="inp" id="admSrc" style="width:auto;min-height:0" onchange="adminFilter()"><option value="">All sources</option>'+srcs.map(x=>'<option>'+esc(x)+'</option>').join("")+'</select>'
-      +'<input class="inp" id="admQ" placeholder="Search tasks, properties, drafts" style="flex:1;min-width:180px;min-height:0" oninput="adminFilter()">'
-      +'<button class="btn sm" onclick="openForm(\'adminTasks\',null,{status:\'open\',batch:\'Manual\'})">Add</button></div>'
-    +(rows?'<div class="card tight"><div class="wrap"><table class="tbl"><thead><tr><th></th><th>Task</th><th>Property</th><th>Source</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>'
-      :'<div class="card"><div class="empty"><h4>Nothing here yet</h4><p>Add admin tasks as they come in.</p></div></div>')
-    +'<div id="admNone" class="card" style="display:none"><div class="empty"><h4>No matches</h4><p>Try another filter.</p></div></div>';
-}
-function adminFilter(){
-  const q=((document.getElementById("admQ")||{}).value||"").trim().toLowerCase();
-  const src=(document.getElementById("admSrc")||{}).value||"";
-  let shown=0;
-  document.querySelectorAll('tr[data-adm]').forEach(tr=>{
-    const ok=(adminView==="all"||tr.dataset.st===adminView)&&(!src||tr.dataset.src===src)&&(!q||tr.dataset.txt.indexOf(q)>=0);
-    tr.style.display=ok?"":"none"; if(ok)shown++;
-  });
-  const n=document.getElementById("admNone"); if(n) n.style.display=(shown||!document.querySelector('tr[data-adm]'))?"none":"";
-}
-function adminToggle(id){
-  const l=adminAll(); const r=l.find(x=>x.id===id); if(!r)return;
-  r.status=r.status==="done"?"open":"done"; r.updated=nowISO(); if(r.status==="done") r.doneAt=nowISO();
-  save("adminTasks",l); try{ logAct("edit","adminTasks",r.title); }catch(e){}
-  toast(r.status==="done"?"Marked done.":"Reopened."); renderPage("admin");
-}
-function adminOpen(id){
-  const r=adminAll().find(x=>x.id===id); if(!r)return;
-  const body=(r.property?'<div class="field"><label>Property</label><div>'+esc(r.property)+'</div></div>':'')
-    +(r.notes?'<div class="field"><label>Notes</label><div style="white-space:pre-wrap">'+esc(r.notes)+'</div></div>':'')
-    +(r.draft?'<div class="field"><label>Draft</label><div class="card" style="white-space:pre-wrap;font-size:12.5px;line-height:1.55;padding:12px 14px">'+esc(r.draft)+'</div></div>':'')
-    +(r.context?'<div class="field"><label>Context</label><div style="white-space:pre-wrap;font-size:12px;color:var(--ink2)">'+esc(r.context)+'</div></div>':'');
-  openModal(r.title||"Admin task", body,
-    '<button class="btn ghost" onclick="closeModal()">Close</button>'
-    +(r.draft?'<button class="btn ghost" onclick="adminCopy(\''+id+'\')">Copy draft</button>':'')
-    +'<button class="btn" onclick="closeModal();adminToggle(\''+id+'\')">'+(r.status==="done"?"Reopen":"Mark done")+'</button>');
-}
-function adminCopy(id){ const r=adminAll().find(x=>x.id===id); if(r&&r.draft) copyText(r.draft,"Draft copied."); }
-
-/* ============================================================
    FORM ENGINE
    ============================================================ */
 function contactNames(){ const s=new Set(); db("users",[]).forEach(u=>{ if(u.name)s.add(u.name); }); db("contacts",[]).forEach(c=>{ if(c.name)s.add(c.name); }); return [...s].sort((a,b)=>a.localeCompare(b)); }
@@ -2912,17 +2855,13 @@ const COLLECTIONS={
     ["customIcons","Custom icons (glyph | label, comma separated)","text","","e.g. Ocean | Ocean view, VIP | VIP owner"],
     ["refPhotos","Reference photos (url | caption, one per line)","photolist"],
     ["attach","Documents, Drive links & photos","attach"]]},
-  adminTasks:{singular:"Admin task",fields:[
-    ["title","Task","text"],["property","Property","text","","Free text, e.g. 57B Terebra, All, Various"],
-    ["source","Source","text","","e.g. Isabell meeting 27 Oct"],
-    ["status","Status","select","open|done"],["due","Due date","date"],
-    ["notes","Notes","textarea"],["draft","Draft message","textarea"],["context","Context (quotes, background)","textarea"],
-    ["batch","Batch / sheet tab","text"]]},
   tasks:{singular:"Task",fields:[
     ["title","Task","text"],["property","Property or company","propref"],
+    ["category","Category (Maintenance shows on the Maintenance page)","select","|Maintenance|Admin|Guest comms|Owner|Housekeeping|Accounts"],
     ["priority","Priority","select","P1|P2|P3"],["assignee","Assignee","people"],
     ["collaborators","Collaborators","peoplemulti"],
     ["due","Due date","date"],["status","Status","select","open|progress|blocked|done"],
+    ["needsApproval","Needs Isabell approval (any spend or owner commitment)","checkbox"],
     ["attach","Photos & links","attach"],["notes","Notes","textarea"]]},
   maintenance:{singular:"Maintenance job",fields:[
     ["issue","Issue","text"],["property","Property","propref"],
@@ -3749,7 +3688,7 @@ function viewMyDay(){
   const part=hr<12?"morning":hr<17?"afternoon":"evening";
   const openTasks=db("tasks",[]).filter(t=>t.status!=="done");
   const due=openTasks.filter(t=>t.due&&t.due<=today).sort((a,b)=>(a.due||"").localeCompare(b.due||""));
-  const appr=db("maintenance",[]).filter(m=>m.needsApproval&&m.status!=="Done");
+  const appr=maintLegacy().filter(m=>m.needsApproval&&m.status!=="Done");
   const servOd=db("servicing",[]).filter(s=>s.status!=="Done"&&s.nextDue&&s.nextDue<today);
   const notes=db("dashNotes","");
   const line=t=>{ const od=t.due&&t.due<today; return '<div class="rowline"><span class="chip '+(t.priority==="P1"?"alert":t.priority==="P2"?"warn":"")+'">'+esc(t.priority||"P3")+'</span><div class="grow"><div>'+esc(t.title)+'</div><div class="muted mono" style="font-size:10px">'+esc(propName(t.property))+(t.due?' &middot; '+esc(t.due)+(od?' overdue':' today'):'')+'</div></div><button class="linkbtn" onclick="cycleTask(\''+t.id+'\')">'+esc(t.status)+'</button></div>'; };
@@ -3819,7 +3758,7 @@ function viewEOD(){
   eodInit();
   const d=buildEODData(eodVA,eodDate);
   const hist=db("eodReports",[]).slice().reverse();
-  const openM=db("maintenance",[]).filter(m=>m.status!=="Done").length;
+  const openM=maintLegacy().filter(m=>m.status!=="Done").length;
   const od=db("servicing",[]).filter(s=>s.status!=="Done"&&s.nextDue&&s.nextDue<eodDate).length;
   const list=(arr)=>arr.length?('<ul style="margin:4px 0 0;padding-left:18px">'+arr.map(x=>'<li style="margin:2px 0">'+esc(x)+'</li>').join("")+'</ul>'):'<div class="muted" style="font-size:12px">None</div>';
   const vaOpts=["Marlon","Harold","Weekend","All"].map(v=>'<option '+(eodVA===v?"selected":"")+'>'+v+'</option>').join("");
@@ -4040,7 +3979,7 @@ function calItem(kind,id){
   if(kind&&kind.indexOf("sub:")===0){ const t=db("tasks",[]).find(x=>x.id===kind.slice(4)); if(!t)return null; const s=(t.subtasks||[]).find(x=>x.id===id); if(!s)return null; return {title:"Subtask: "+s.title,date:s.due,details:"Part of "+t.title+(s.assignee?" ["+s.assignee+"]":"")}; }
   if(kind==="task"){ const t=db("tasks",[]).find(x=>x.id===id); if(!t)return null; return {title:"Task: "+t.title,date:t.due,details:(t.notes||"")+(t.property?" ["+propName(t.property)+"]":"")}; }
   if(kind==="serv"){ const s=db("servicing",[]).find(x=>x.id===id); if(!s)return null; return {title:(s.type||"Servicing")+": "+propName(s.property),date:s.nextDue,details:(s.vendor||"")+" "+(s.notes||"")}; }
-  if(kind==="maint"){ const m=db("maintenance",[]).find(x=>x.id===id); if(!m)return null; return {title:(m.trade||"Maintenance")+": "+(m.issue||"")+(m.property?" ["+propName(m.property)+"]":""),date:m.due,details:(m.contractor||"")+" "+(m.notes||"")}; }
+  if(kind==="maint"){ const m=maintLegacy().find(x=>x.id===id); if(!m)return null; return {title:(m.trade||"Maintenance")+": "+(m.issue||"")+(m.property?" ["+propName(m.property)+"]":""),date:m.due,details:(m.contractor||"")+" "+(m.notes||"")}; }
   if(kind==="claim"){ const c=db("shieldClaims",[]).find(x=>x.id===id); if(!c)return null; return {title:"Guesty Shield claim deadline: "+(c.reservationCode||"claim"),date:claimDeadline(c),details:"Submit within 15 days of check-out ("+(c.checkOut||"")+"). "+propName(c.listing)}; }
   return null;
 }
